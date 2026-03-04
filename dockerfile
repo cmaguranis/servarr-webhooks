@@ -1,0 +1,17 @@
+FROM python:3
+
+ENV SEERR_BASEURL ''
+ENV SEERR_API_KEY ''
+ENV MOVIE_FOLDER_ANIMEMOVIES ''
+ENV MOVIE_FOLDER_CARTOON ''
+ENV TV_FOLDER_DOCUMENTARY ''
+ENV TV_FOLDER_ANIMATEDSERIES ''
+ENV TV_FOLDER_REALITY ''
+
+ADD requirements.txt /
+
+RUN pip install -r requirements.txt
+
+ADD main.py /
+
+CMD [ "python", "./main.py" ] 
