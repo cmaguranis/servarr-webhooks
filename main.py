@@ -2,6 +2,8 @@ import os
 import time
 import logging
 import requests
+import copy
+from datetime import datetime, timezone, timedeltax
 from flask import Flask, request, jsonify
 from waitress import serve
 from dotenv import load_dotenv
@@ -95,48 +97,62 @@ def handle_seerr_webhook():
 
   return ('Success', 202)
 
-def update_quality_profile(series_id, series_title):
-  endpoint = f"{SONARR_BASEURL}/api/v3/series/{series_id}"
-  headers = {"X-Api-Key": SONARR_API_KEY}
+def update_media_path(media_item, threshold_date):
+  # Extract the added date string for parsing
+  added_str = media_item.get('added')
+  if not added_str:
+    return None
 
-  response = requests.get(endpoint, headers=headers)
-  if response.status_code != 200:
-    logger.error(f"Sonarr: failed to fetch series id={series_id} — {response.status_code}")
-    return False
+  # Parse ISO format and handle UTC 'Z' suffix
+  added_date = datetime.fromisoformat(added_str.replace('Z', '+00:00'))
+  
+  # Only proceed if the item is older than the 7-day threshold
+  if added_date > threshold_date:
+    return None
 
-  series_data = response.json()
-  series_data["qualityProfileId"] = SONARR_TARGET_QUALITY_PROFILE_ID
+  # Create a copy to prevent in-place mutation of the original item
+  updated_item = copy.copy(media_item)
+  
+  logger.info(f"Promoting '{updated_item.get('title')}' (id={updated_item.get('id')}, added={added_str})")
+  
+  # Calculate new destination paths
+  new_root = updated_item.get('rootFolderPath', '').replace('/media_cache', '/media')
+  new_path = updated_item.get('path', '').replace('/media_cache', '/media')
+  
+  updated_item['path'] = new_path
+  updated_item['rootFolderPath'] = new_root
 
-  put_response = requests.put(endpoint, headers=headers, json=series_data)
-  if put_response.status_code in (200, 202):
-    logger.info(f"Sonarr: updated quality profile for '{series_title}' (id={series_id}) to profile {SONARR_TARGET_QUALITY_PROFILE_ID}")
-    return True
-  else:
-    logger.error(f"Sonarr: failed to update quality profile for '{series_title}' (id={series_id}) — {put_response.status_code} {put_response.text}")
-    return False
+  return updated_item
+    
+    # Trigger the Arr-internal move
+    requests.put(f"{cfg['url']}/api/v3/{cfg['type']}/{media_item.get('id')}?moveFiles=true", headers=headers, json=media_item)
 
-@app.route('/sonarr-webhook', methods=['POST'])
-def handle_sonarr_webhook():
-  data = request.json
+@app.route('/promote-cache', methods=['POST'])
+def promote_cache():
+  """Moves media from SSD to HDD based on API 'added' date and rating."""
+  configs = [
+    {'name': 'Radarr', 'url': RADARR_BASEURL, 'key': RADARR_API_KEY, 'type': 'movie'},
+    {'name': 'Sonarr', 'url': SONARR_BASEURL, 'key': SONARR_API_KEY, 'type': 'series'}
+  ]
+  
+  # Define the 7-day + 1 day buffer threshold
+  threshold_date = datetime.now(timezone.utc) - timedelta(days=8)
+  
+  for cfg in configs:
+    try:
+      media = requests.get(f"{cfg['url']}/api/v3/{cfg['type']}", headers={'X-Api-Key': cfg['key']}).json()
+      
+      for media_item in media:
+        updated_media_item = update_media_path(media_item=media_item, threshold_date=threshold_date)
+      
+        if updated_media_item:
+          # Trigger the Arr-internal move
+          requests.put(f"{cfg['url']}/api/v3/{cfg['type']}/{updated_media_item.get('id')}?moveFiles=true", headers=headers, json=updated_media_item)
+    except Exception as e:
+      logger.error(f"[{cfg['name']}] promotion failed for '{media_item.get('title')}' (id={media_item.get('id')}: {e}")
 
-  event_type = data.get('eventType')
+  return jsonify({"status": "promotion check complete"}), 200
 
-  if event_type and event_type.lower() == 'download':
-    series = data.get('series', {})
-    series_id = series.get('id')
-    series_title = series.get('title', f'id={series_id}')
-    episodes = data.get('episodes', [])
-
-    is_premiere = any(ep.get('seasonNumber') == 1 and ep.get('episodeNumber') == 1 for ep in episodes)
-
-    if is_premiere and series_id:
-      success = update_quality_profile(series_id, series_title)
-      status = "updated" if success else "failed"
-      return jsonify({"status": f"quality profile {status}"}), 200
-
-    logger.info(f"Sonarr: no action for '{series_title}' (event={event_type}, premiere={is_premiere})")
-
-  return jsonify({"status": "ignored"}), 200
 
 if __name__ == '__main__':
   serve(app, host='0.0.0.0', port='5001')
