@@ -3,7 +3,7 @@ import time
 import logging
 import requests
 import copy
-from datetime import datetime, timezone, timedeltax
+from datetime import datetime, timezone, timedelta
 from flask import Flask, request, jsonify
 from waitress import serve
 from dotenv import load_dotenv
@@ -123,9 +123,6 @@ def update_media_path(media_item, threshold_date):
   updated_item['rootFolderPath'] = new_root
 
   return updated_item
-    
-    # Trigger the Arr-internal move
-    requests.put(f"{cfg['url']}/api/v3/{cfg['type']}/{media_item.get('id')}?moveFiles=true", headers=headers, json=media_item)
 
 @app.route('/promote-cache', methods=['POST'])
 def promote_cache():
