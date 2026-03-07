@@ -1,0 +1,4 @@
+[transcode]
+skip_groups = yify, yts, judas
+cleanup_done_days = 7
+cleanup_failed_days = 21
