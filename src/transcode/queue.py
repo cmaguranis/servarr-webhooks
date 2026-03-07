@@ -49,14 +49,18 @@ def enqueue_job(path: str, meta: dict):
     with _lock:
         conn = _connect()
         try:
-            conn.execute(
+            cur = conn.execute(
                 "INSERT OR IGNORE INTO transcode_jobs (path, meta, status) VALUES (?, ?, 'pending')",
                 (path, json.dumps(meta)),
             )
             conn.commit()
+            job_id = cur.lastrowid if cur.rowcount else None
         finally:
             conn.close()
-    logger.info(f"Enqueued: {path}")
+    if job_id:
+        logger.info(f"[job {job_id}] Enqueued: {path}")
+    else:
+        logger.info(f"Skipped duplicate enqueue: {path}")
 
 
 def claim_pending_jobs(limit: int = 10) -> list:
@@ -96,6 +100,46 @@ def _set_status(job_id: int, status: str):
                 (status, job_id),
             )
             conn.commit()
+        finally:
+            conn.close()
+
+
+def list_jobs(status: str | None = None) -> list:
+    with _lock:
+        conn = _connect()
+        try:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM transcode_jobs WHERE status=? ORDER BY updated_at DESC",
+                    (status,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM transcode_jobs ORDER BY updated_at DESC"
+                ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+
+def requeue_job(job_id: int, dry_run: bool = False) -> bool:
+    """Reset a job to pending. Returns False if job not found."""
+    with _lock:
+        conn = _connect()
+        try:
+            row = conn.execute(
+                "SELECT meta FROM transcode_jobs WHERE id=?", (job_id,)
+            ).fetchone()
+            if not row:
+                return False
+            meta = json.loads(row["meta"] or "{}")
+            meta["dry_run"] = dry_run
+            conn.execute(
+                "UPDATE transcode_jobs SET status='pending', meta=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (json.dumps(meta), job_id),
+            )
+            conn.commit()
+            return True
         finally:
             conn.close()
 

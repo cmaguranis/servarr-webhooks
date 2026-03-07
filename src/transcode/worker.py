@@ -33,6 +33,7 @@ def _run(job: dict):
             orig_lang=meta.get("orig_lang"),
             has_51=meta.get("has_51"),
             dry_run=dry_run,
+            job_id=job_id,
         )
 
         arr_id = meta.get("arr_id")

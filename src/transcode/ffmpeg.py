@@ -87,7 +87,10 @@ def transcode_file(
     orig_lang: str | None = None,
     has_51: bool | None = None,
     dry_run: bool = False,
+    job_id: int | None = None,
 ):
+    prefix = f"[job {job_id}] " if job_id is not None else ""
+
     try:
         # Fill missing metadata via ffprobe only for fields that are None
         if any(v is None for v in [codec, bitrate_kbps, orig_lang, has_51]):
@@ -115,12 +118,12 @@ def transcode_file(
         needs_audio = needs_loudnorm or needs_dynaudnorm
 
         if not needs_video and not needs_audio:
-            logger.info(f"No transcode needed: '{path}'")
+            logger.info(f"{prefix}No transcode needed: '{path}'")
             return
 
         if dry_run:
             logger.info(
-                f"[DRY RUN] '{path}': video={needs_video}, loudnorm={needs_loudnorm}, "
+                f"{prefix}[DRY RUN] '{path}': video={needs_video}, loudnorm={needs_loudnorm}, "
                 f"dynaudnorm={needs_dynaudnorm}, lang={orig_lang}, 5.1={has_51}"
             )
             return
@@ -167,11 +170,11 @@ def transcode_file(
             if result.returncode != 0:
                 raise RuntimeError(f"ffmpeg exited {result.returncode}: {result.stderr[-500:]}")
             os.replace(tmp, path)
-            logger.info(f"Transcode complete: '{path}'")
+            logger.info(f"{prefix}Transcode complete: '{path}'")
         finally:
             if os.path.exists(tmp):
                 os.remove(tmp)
 
     except Exception as e:
-        logger.error(f"transcode_file failed for '{path}': {e}")
+        logger.error(f"{prefix}transcode_file failed for '{path}': {e}")
         raise

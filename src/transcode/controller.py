@@ -2,7 +2,7 @@ import logging
 from flask import Blueprint, request
 
 from src import config, radarr_service, sonarr_service
-from src.transcode.queue import enqueue_job
+from src.transcode.queue import enqueue_job, list_jobs, requeue_job
 
 logger = logging.getLogger(__name__)
 
@@ -74,4 +74,21 @@ def transcode_webhook():
     }
 
     enqueue_job(file_info["path"], meta)
+    return ("", 202)
+
+
+@bp.route("/transcode/jobs", methods=["GET"])
+def get_jobs():
+    status = request.args.get("status")  # optional filter: pending, processing, done, failed
+    jobs = list_jobs(status)
+    return ({"jobs": jobs}, 200)
+
+
+@bp.route("/transcode/jobs/<int:job_id>/retry", methods=["POST"])
+def retry_job(job_id):
+    dry_run = request.args.get("dry_run", "").lower() == "true"
+    found = requeue_job(job_id, dry_run=dry_run)
+    if not found:
+        return ({"error": f"Job {job_id} not found"}, 404)
+    logger.info(f"Requeued job {job_id} (dry_run={dry_run})")
     return ("", 202)

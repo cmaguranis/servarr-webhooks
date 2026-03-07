@@ -10,19 +10,19 @@ services:
     environment:
       - TZ=${{ tz }}
       - SEERR_BASEURL=http://192.168.1.67:5055
-      - SEERR_API_KEY=
       - RADARR_BASEURL=http://192.168.1.67:7878
-      - RADARR_API_KEY=
       - SONARR_BASEURL=http://192.168.1.67:8989
+      - SEERR_API_KEY=
+      - RADARR_API_KEY=
       - SONARR_API_KEY=
       - SONARR_TARGET_QUALITY_PROFILE_ID=16
-      - ROOT_FOLDER_ANIME_MOVIES=/cache/anime_movies
+      - ROOT_FOLDER_ANIME_MOVIES=/data/media_cache/anime_movies
       - TRANSCODE_WORKERS=2
       - TRANSCODE_TEMP_FALLBACK=/config/transcode-temp
     volumes:
       - ${{ sf:"appdata" }}/servarr-webhooks:/config
       - ${{ sf:"media" }}:/media:shared
-      - ${{ sf:"cache" }}:/cache:shared
+      - ${{ sf:"cache" }}:/data:rshared
     devices:
       - /dev/dri:/dev/dri
     cpu_shares: 512
