@@ -25,6 +25,7 @@ def _run(job: dict):
     job_id = job["id"]
     dry_run = meta.get("dry_run", False)
 
+    logger.info(f"[job {job_id}] Starting: {path} (dry_run={dry_run})")
     try:
         transcode_file(
             path,
@@ -57,14 +58,17 @@ def _run(job: dict):
 def _loop():
     last_cleanup = 0.0
     while not _stop_flag.is_set():
-        jobs = claim_pending_jobs(limit=TRANSCODE_WORKERS)
-        if jobs:
-            futures = [_executor.submit(_run, job) for job in jobs]
-            wait(futures, return_when=ALL_COMPLETED)
+        try:
+            jobs = claim_pending_jobs(limit=TRANSCODE_WORKERS)
+            if jobs:
+                futures = [_executor.submit(_run, job) for job in jobs]
+                wait(futures, return_when=ALL_COMPLETED)
 
-        if time.time() - last_cleanup > 86400:
-            cleanup_jobs()
-            last_cleanup = time.time()
+            if time.time() - last_cleanup > 86400:
+                cleanup_jobs()
+                last_cleanup = time.time()
+        except Exception as e:
+            logger.error(f"Worker loop error: {e}", exc_info=True)
 
         _stop_flag.wait(timeout=POLL_INTERVAL)
 
