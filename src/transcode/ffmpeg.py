@@ -34,8 +34,39 @@ def get_stream_info(path: str) -> dict:
     return json.loads(res.stdout)
 
 
-def get_loudness_stats(path: str) -> dict | None:
-    cmd = ["ffmpeg", "-i", path, "-af", "loudnorm=print_format=json", "-f", "null", "-"]
+LOUDNESS_SAMPLE_SECONDS = int(os.getenv("LOUDNESS_SAMPLE_SECONDS", "600"))
+
+# QSV hardware decoders for common input codecs (Gen 8+ iGPU).
+# Keeping frames on the GPU avoids a CPU↔GPU copy before hevc_qsv encoding.
+_QSV_DECODER = {
+    "h264": "h264_qsv", "avc": "h264_qsv", "x264": "h264_qsv",
+    "hevc": "hevc_qsv", "h265": "hevc_qsv", "x265": "hevc_qsv",
+    "mpeg2video": "mpeg2_qsv", "mpeg2": "mpeg2_qsv",
+    "vc1": "vc1_qsv",
+    "vp9": "vp9_qsv",
+}
+
+# ICQ quality target (1–51, lower = better). ~23 is visually transparent for 1080p HEVC.
+HEVC_ICQ_QUALITY = int(os.getenv("HEVC_ICQ_QUALITY", "23"))
+
+
+def get_loudness_stats(
+    path: str,
+    orig_lang: str | None = None,
+    has_51: bool | None = None,
+) -> dict | None:
+    # Select the same stream the encoder will use:
+    # prefer original language; if 5.1 present use that, else stereo fallback.
+    # Set LOUDNESS_SAMPLE_SECONDS=0 to analyze the full file.
+    if orig_lang:
+        audio_map = f"0:a:m:language:{orig_lang}"
+    else:
+        audio_map = "0:a:0"
+
+    cmd = ["ffmpeg", "-i", path]
+    if LOUDNESS_SAMPLE_SECONDS > 0:
+        cmd += ["-t", str(LOUDNESS_SAMPLE_SECONDS)]
+    cmd += ["-map", audio_map, "-af", "loudnorm=print_format=json", "-f", "null", "-"]
     res = subprocess.run(cmd, capture_output=True, text=True)
     try:
         json_start = res.stderr.rfind("{")
@@ -94,6 +125,7 @@ def transcode_file(
     try:
         # Fill missing metadata via ffprobe only for fields that are None
         if any(v is None for v in [codec, bitrate_kbps, orig_lang, has_51]):
+            logger.info(f"{prefix}Probing stream info...")
             info = get_stream_info(path)
             streams = info.get("streams", [])
             fmt = info.get("format", {})
@@ -109,13 +141,20 @@ def transcode_file(
                 orig_lang = _LANG_MAP.get(lang_name.lower(), lang_name)
             if has_51 is None:
                 has_51 = any(s.get("channels", 0) >= 6 for s in a_streams)
+            logger.info(f"{prefix}Stream info: codec={codec}, bitrate={bitrate_kbps}kbps, lang={orig_lang}, 5.1={has_51}")
 
         codec_norm = (codec or "").lower().replace(" ", "")
         needs_video = not (codec_norm in HEVC_ALIASES and (bitrate_kbps or 0) <= 8000)
+        logger.info(f"{prefix}Needs video transcode: {needs_video} (codec={codec}, bitrate={bitrate_kbps}kbps)")
 
-        stats = get_loudness_stats(path)
+        logger.info(f"{prefix}Running loudness analysis (this may take several minutes)...")
+        stats = get_loudness_stats(path, orig_lang=orig_lang, has_51=has_51)
         needs_loudnorm, needs_dynaudnorm = _audio_needs(stats)
         needs_audio = needs_loudnorm or needs_dynaudnorm
+        if stats:
+            logger.info(f"{prefix}Loudness: {stats.get('input_i')} LUFS, LRA={stats.get('input_lra')} LU → loudnorm={needs_loudnorm}, dynaudnorm={needs_dynaudnorm}")
+        else:
+            logger.warning(f"{prefix}Loudness analysis returned no stats — will apply full audio normalization")
 
         if not needs_video and not needs_audio:
             logger.info(f"{prefix}No transcode needed: '{path}'")
@@ -128,11 +167,25 @@ def transcode_file(
             )
             return
 
-        # Build ffmpeg command
-        cmd = ["ffmpeg", "-y", "-i", path, "-map", "0:v"]
+        # Build ffmpeg command — use QSV hw decode when available to keep
+        # frames on GPU and avoid CPU↔GPU copy before hevc_qsv encoding.
+        qsv_decoder = _QSV_DECODER.get(codec_norm) if needs_video else None
+        if qsv_decoder:
+            cmd = [
+                "ffmpeg", "-y",
+                "-hwaccel", "qsv", "-hwaccel_output_format", "qsv",
+                "-c:v", qsv_decoder,
+                "-i", path, "-map", "0:v",
+            ]
+            logger.info(f"{prefix}Using QSV hw decode: {qsv_decoder}")
+        else:
+            cmd = ["ffmpeg", "-y", "-i", path, "-map", "0:v"]
 
         if needs_video:
-            cmd += ["-c:v", "hevc_qsv", "-b:v", "5000k", "-preset", "slow"]
+            # ICQ (Intelligent Constant Quality) — better quality/size than fixed
+            # bitrate; QSV allocates bits per-scene rather than averaging.
+            cmd += ["-c:v", "hevc_qsv", "-rc_mode", "icq",
+                    "-global_quality", str(HEVC_ICQ_QUALITY), "-preset", "medium"]
         else:
             cmd += ["-c:v", "copy"]
 
@@ -165,6 +218,7 @@ def transcode_file(
 
         temp_dir = _pick_temp_dir(path)
         tmp = os.path.join(temp_dir, f"{uuid.uuid4().hex}.mkv")
+        logger.info(f"{prefix}Encoding to temp file in {temp_dir}...")
         try:
             result = subprocess.run(cmd + [tmp], capture_output=True, text=True)
             if result.returncode != 0:
