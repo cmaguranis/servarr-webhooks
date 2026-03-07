@@ -5,6 +5,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 _tag_cache: dict[str, int] = {}
+_TIMEOUT = 15
 
 
 def _base():
@@ -16,13 +17,19 @@ def _headers():
 
 
 def get_movie(movie_id):
-    res = requests.get(f"{_base()}/api/v3/movie/{movie_id}", headers=_headers())
+    res = requests.get(f"{_base()}/api/v3/movie/{movie_id}", headers=_headers(), timeout=_TIMEOUT)
+    res.raise_for_status()
+    return res.json()
+
+
+def get_all_movies():
+    res = requests.get(f"{_base()}/api/v3/movie", headers=_headers(), timeout=_TIMEOUT)
     res.raise_for_status()
     return res.json()
 
 
 def get_movie_by_tmdb(tmdb_id):
-    res = requests.get(f"{_base()}/api/v3/movie", params={"tmdbId": tmdb_id}, headers=_headers())
+    res = requests.get(f"{_base()}/api/v3/movie", params={"tmdbId": tmdb_id}, headers=_headers(), timeout=_TIMEOUT)
     res.raise_for_status()
     movies = res.json()
     return movies[0] if movies else None
@@ -34,6 +41,7 @@ def update_movie(movie):
         params={"moveFiles": "true"},
         headers=_headers(),
         json=movie,
+        timeout=_TIMEOUT,
     )
     res.raise_for_status()
     return res.json()
@@ -44,9 +52,8 @@ def update_movie_path(tmdb_id, new_root_path):
     if not movie:
         logger.warning(f"Radarr: movie tmdbId={tmdb_id} not found")
         return
-    import os as _os
-    folder_name = _os.path.basename(movie["path"])
-    movie["path"] = _os.path.join(new_root_path, folder_name)
+    folder_name = os.path.basename(movie["path"])
+    movie["path"] = os.path.join(new_root_path, folder_name)
     movie["rootFolderPath"] = new_root_path
     update_movie(movie)
     logger.info(f"Radarr: moved '{movie['title']}' to {new_root_path}")
@@ -55,13 +62,13 @@ def update_movie_path(tmdb_id, new_root_path):
 def get_or_create_tag(label: str) -> int:
     if label in _tag_cache:
         return _tag_cache[label]
-    res = requests.get(f"{_base()}/api/v3/tag", headers=_headers())
+    res = requests.get(f"{_base()}/api/v3/tag", headers=_headers(), timeout=_TIMEOUT)
     res.raise_for_status()
     for tag in res.json():
         _tag_cache[tag["label"]] = tag["id"]
     if label in _tag_cache:
         return _tag_cache[label]
-    res = requests.post(f"{_base()}/api/v3/tag", headers=_headers(), json={"label": label})
+    res = requests.post(f"{_base()}/api/v3/tag", headers=_headers(), json={"label": label}, timeout=_TIMEOUT)
     res.raise_for_status()
     tag_id = res.json()["id"]
     _tag_cache[label] = tag_id
@@ -82,6 +89,7 @@ def rescan_movie(movie_id: int):
         f"{_base()}/api/v3/command",
         headers=_headers(),
         json={"name": "RescanMovie", "movieId": movie_id},
+        timeout=_TIMEOUT,
     )
     res.raise_for_status()
     logger.info(f"Radarr: rescan issued for movie {movie_id}")

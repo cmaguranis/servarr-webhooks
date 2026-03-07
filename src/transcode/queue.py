@@ -123,14 +123,16 @@ def list_jobs(status: str | None = None) -> list:
 
 
 def requeue_job(job_id: int, dry_run: bool = False) -> bool:
-    """Reset a job to pending. Returns False if job not found."""
+    """Reset a job to pending. Returns False if job not found or currently processing."""
     with _lock:
         conn = _connect()
         try:
             row = conn.execute(
-                "SELECT meta FROM transcode_jobs WHERE id=?", (job_id,)
+                "SELECT meta, status FROM transcode_jobs WHERE id=?", (job_id,)
             ).fetchone()
             if not row:
+                return False
+            if row["status"] == "processing":
                 return False
             meta = json.loads(row["meta"] or "{}")
             meta["dry_run"] = dry_run

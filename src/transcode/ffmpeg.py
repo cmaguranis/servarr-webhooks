@@ -3,6 +3,7 @@ import json
 import uuid
 import shutil
 import logging
+import threading
 import subprocess
 
 logger = logging.getLogger(__name__)
@@ -11,18 +12,7 @@ TRANSCODE_TEMP_PRIMARY = os.getenv("TRANSCODE_TEMP_DIR", "/dev/shm")
 TRANSCODE_TEMP_FALLBACK = os.getenv("TRANSCODE_TEMP_FALLBACK", "/transcode-temp")
 
 HEVC_ALIASES = {"x265", "h265", "h.265", "hevc"}
-
-_LANG_MAP = {
-    "english": "eng",
-    "japanese": "jpn",
-    "french": "fra",
-    "spanish": "spa",
-    "german": "deu",
-    "korean": "kor",
-    "chinese": "zho",
-    "portuguese": "por",
-    "italian": "ita",
-}
+_TEXT_SUB_CODECS = {"subrip", "ass", "ssa", "webvtt", "mov_text", "text"}
 
 
 def get_stream_info(path: str) -> dict:
@@ -49,11 +39,18 @@ _QSV_DECODER = {
 # ICQ quality target (1–51, lower = better). ~23 is visually transparent for 1080p HEVC.
 HEVC_ICQ_QUALITY = int(os.getenv("HEVC_ICQ_QUALITY", "23"))
 
+# Limits concurrent QSV video encodes — iGPU degrades beyond ~2 simultaneous sessions.
+_MAX_QSV_SESSIONS = int(os.getenv("MAX_CONCURRENT_QSV_SESSIONS", "2"))
+_qsv_semaphore = threading.BoundedSemaphore(_MAX_QSV_SESSIONS)
+
+# Serializes temp-dir allocation so concurrent workers don't double-count free space.
+_disk_lock = threading.Lock()
+_primary_reserved: int = 0
+
 
 def get_loudness_stats(
     path: str,
     orig_lang: str | None = None,
-    has_51: bool | None = None,
 ) -> dict | None:
     # Select the same stream the encoder will use:
     # prefer original language; if 5.1 present use that, else stereo fallback.
@@ -66,12 +63,16 @@ def get_loudness_stats(
     cmd = ["ffmpeg", "-i", path]
     if LOUDNESS_SAMPLE_SECONDS > 0:
         cmd += ["-t", str(LOUDNESS_SAMPLE_SECONDS)]
-    cmd += ["-map", audio_map, "-af", "loudnorm=print_format=json", "-f", "null", "-"]
+    # -vn skips video demux entirely; downmix to stereo before loudnorm avoids EAC3 Atmos issues.
+    cmd += ["-vn", "-map", audio_map, "-af", "aresample=48000,aformat=sample_fmts=fltp,loudnorm=print_format=json", "-ac", "2", "-f", "null", "-"]
     res = subprocess.run(cmd, capture_output=True, text=True)
     try:
         json_start = res.stderr.rfind("{")
+        if json_start == -1:
+            raise ValueError("no JSON in stderr")
         return json.loads(res.stderr[json_start:])
     except Exception:
+        logger.debug(f"loudnorm stderr tail: {res.stderr[-500:]}")
         return None
 
 
@@ -102,13 +103,23 @@ def _build_audio_filter(stats: dict | None, needs_loudnorm: bool, needs_dynaudno
     return ",".join(parts)
 
 
-def _pick_temp_dir(source_path: str) -> str:
-    required = os.path.getsize(source_path)
-    if shutil.disk_usage(TRANSCODE_TEMP_PRIMARY).free >= required:
-        return TRANSCODE_TEMP_PRIMARY
+def _pick_temp_dir(required: int) -> str:
+    global _primary_reserved
+    with _disk_lock:
+        free = shutil.disk_usage(TRANSCODE_TEMP_PRIMARY).free
+        if free - _primary_reserved >= required:
+            _primary_reserved += required
+            return TRANSCODE_TEMP_PRIMARY
     logger.warning(f"Not enough space in {TRANSCODE_TEMP_PRIMARY}, using {TRANSCODE_TEMP_FALLBACK}")
     os.makedirs(TRANSCODE_TEMP_FALLBACK, exist_ok=True)
     return TRANSCODE_TEMP_FALLBACK
+
+
+def _release_temp_reservation(temp_dir: str, size: int):
+    global _primary_reserved
+    if temp_dir == TRANSCODE_TEMP_PRIMARY:
+        with _disk_lock:
+            _primary_reserved = max(0, _primary_reserved - size)
 
 
 def transcode_file(
@@ -123,32 +134,51 @@ def transcode_file(
     prefix = f"[job {job_id}] " if job_id is not None else ""
 
     try:
-        # Fill missing metadata via ffprobe only for fields that are None
-        if any(v is None for v in [codec, bitrate_kbps, orig_lang, has_51]):
-            logger.info(f"{prefix}Probing stream info...")
-            info = get_stream_info(path)
-            streams = info.get("streams", [])
-            fmt = info.get("format", {})
-            v_stream = next((s for s in streams if s["codec_type"] == "video"), {})
-            a_streams = [s for s in streams if s["codec_type"] == "audio"]
-            if codec is None:
-                codec = v_stream.get("codec_name", "")
-            if bitrate_kbps is None:
-                bitrate_kbps = int(fmt.get("bitrate", 0)) // 1000
-            if orig_lang is None:
-                main_audio = a_streams[0] if a_streams else {}
-                lang_name = main_audio.get("tags", {}).get("language", "eng")
-                orig_lang = _LANG_MAP.get(lang_name.lower(), lang_name)
-            if has_51 is None:
-                has_51 = any(s.get("channels", 0) >= 6 for s in a_streams)
-            logger.info(f"{prefix}Stream info: codec={codec}, bitrate={bitrate_kbps}kbps, lang={orig_lang}, 5.1={has_51}")
+        # Always probe — needed to identify text subtitle tracks and fill any missing metadata
+        logger.info(f"{prefix}Probing stream info...")
+        info = get_stream_info(path)
+        streams = info.get("streams", [])
+        fmt = info.get("format", {})
+        v_stream = next((s for s in streams if s["codec_type"] == "video"), {})
+        a_streams = [s for s in streams if s["codec_type"] == "audio"]
+        s_streams = [s for s in streams if s["codec_type"] == "subtitle"]
+        if codec is None:
+            codec = v_stream.get("codec_name", "")
+        if bitrate_kbps is None:
+            bitrate_kbps = int(fmt.get("bitrate", 0)) // 1000
+        if orig_lang is None:
+            main_audio = a_streams[0] if a_streams else {}
+            orig_lang = main_audio.get("tags", {}).get("language", "eng")
+        # Resolve the audio-only index of the first stream matching orig_lang.
+        # Using a numeric index (0:a:N) is unambiguous vs language metadata selectors.
+        audio_idx = next(
+            (i for i, s in enumerate(a_streams) if s.get("tags", {}).get("language") == orig_lang),
+            0,
+        )
+        target_audio = a_streams[audio_idx] if a_streams else {}
+        audio_abs_idx = target_audio.get("index", 0)
+        if has_51 is None:
+            has_51 = target_audio.get("channels", 0) >= 6
+        logger.info(f"{prefix}Stream info: codec={codec}, bitrate={bitrate_kbps}kbps, lang={orig_lang}, 5.1={has_51}")
+
+        text_sub_indices = [
+            s["index"] for s in s_streams
+            if s.get("codec_name", "").lower() in _TEXT_SUB_CODECS
+        ]
+        image_sub_count = len(s_streams) - len(text_sub_indices)
+        if image_sub_count > 0:
+            logger.info(f"{prefix}Dropping {image_sub_count} image-based subtitle track(s), keeping {len(text_sub_indices)} text track(s)")
+        elif text_sub_indices:
+            logger.info(f"{prefix}Keeping {len(text_sub_indices)} text subtitle track(s)")
+
+        needs_sub_strip = image_sub_count > 0
 
         codec_norm = (codec or "").lower().replace(" ", "")
         needs_video = not (codec_norm in HEVC_ALIASES and (bitrate_kbps or 0) <= 8000)
         logger.info(f"{prefix}Needs video transcode: {needs_video} (codec={codec}, bitrate={bitrate_kbps}kbps)")
 
         logger.info(f"{prefix}Running loudness analysis (this may take several minutes)...")
-        stats = get_loudness_stats(path, orig_lang=orig_lang, has_51=has_51)
+        stats = get_loudness_stats(path, orig_lang=orig_lang)
         needs_loudnorm, needs_dynaudnorm = _audio_needs(stats)
         needs_audio = needs_loudnorm or needs_dynaudnorm
         if stats:
@@ -156,14 +186,14 @@ def transcode_file(
         else:
             logger.warning(f"{prefix}Loudness analysis returned no stats — will apply full audio normalization")
 
-        if not needs_video and not needs_audio:
+        if not needs_video and not needs_audio and not needs_sub_strip:
             logger.info(f"{prefix}No transcode needed: '{path}'")
             return
 
         if dry_run:
             logger.info(
                 f"{prefix}[DRY RUN] '{path}': video={needs_video}, loudnorm={needs_loudnorm}, "
-                f"dynaudnorm={needs_dynaudnorm}, lang={orig_lang}, 5.1={has_51}"
+                f"dynaudnorm={needs_dynaudnorm}, lang={orig_lang}, 5.1={has_51}, sub_strip={needs_sub_strip}"
             )
             return
 
@@ -184,8 +214,11 @@ def transcode_file(
         if needs_video:
             # ICQ (Intelligent Constant Quality) — better quality/size than fixed
             # bitrate; QSV allocates bits per-scene rather than averaging.
-            cmd += ["-c:v", "hevc_qsv", "-rc_mode", "icq",
-                    "-global_quality", str(HEVC_ICQ_QUALITY), "-preset", "medium"]
+            # -fps_mode cfr: enforce constant frame rate so QSV hardware encoder
+            # doesn't produce A/V desync on VFR source material.
+            cmd += ["-fps_mode", "cfr", "-c:v", "hevc_qsv", "-rc_mode", "icq",
+                    "-global_quality", str(HEVC_ICQ_QUALITY), "-preset", "medium",
+                    "-extbrc", "1", "-look_ahead", "1", "-look_ahead_depth", "20"]
         else:
             cmd += ["-c:v", "copy"]
 
@@ -193,8 +226,8 @@ def transcode_file(
             audio_filter = _build_audio_filter(stats, needs_loudnorm, needs_dynaudnorm)
             if has_51:
                 cmd += [
-                    "-map", f"0:a:m:language:{orig_lang}",
-                    "-map", f"0:a:m:language:{orig_lang}",
+                    "-map", f"0:{audio_abs_idx}",
+                    "-map", f"0:{audio_abs_idx}",
                     "-c:a:0", "aac", "-ac:0", "2", "-b:a:0", "192k",
                     "-c:a:1", "ac3", "-b:a:1", "640k",
                     "-disposition:a:0", "default", "-disposition:a:1", "0",
@@ -203,31 +236,41 @@ def transcode_file(
                     cmd += ["-af:0", audio_filter, "-af:1", audio_filter]
             else:
                 cmd += [
-                    "-map", f"0:a:m:language:{orig_lang}",
+                    "-map", f"0:{audio_abs_idx}",
                     "-c:a", "aac", "-ac", "2", "-b:a", "192k",
                 ]
                 if audio_filter:
                     cmd += ["-af", audio_filter]
         else:
             cmd += [
-                "-map", f"0:a:m:language:{orig_lang}" if orig_lang else "0:a",
+                "-map", f"0:{audio_abs_idx}",
                 "-c:a", "copy",
             ]
 
-        cmd += ["-map", "0:s?", "-c:s", "copy"]
+        for idx in text_sub_indices:
+            cmd += ["-map", f"0:{idx}"]
+        if text_sub_indices:
+            cmd += ["-c:s", "copy"]
 
-        temp_dir = _pick_temp_dir(path)
+        file_size = os.path.getsize(path)
+        temp_dir = _pick_temp_dir(file_size)
         tmp = os.path.join(temp_dir, f"{uuid.uuid4().hex}.mkv")
         logger.info(f"{prefix}Encoding to temp file in {temp_dir}...")
         try:
-            result = subprocess.run(cmd + [tmp], capture_output=True, text=True)
+            if needs_video:
+                with _qsv_semaphore:
+                    logger.info(f"{prefix}QSV slot acquired, encoding...")
+                    result = subprocess.run(cmd + [tmp], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            else:
+                result = subprocess.run(cmd + [tmp], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
             if result.returncode != 0:
                 raise RuntimeError(f"ffmpeg exited {result.returncode}: {result.stderr[-500:]}")
-            os.replace(tmp, path)
+            shutil.move(tmp, path)
             logger.info(f"{prefix}Transcode complete: '{path}'")
         finally:
             if os.path.exists(tmp):
                 os.remove(tmp)
+            _release_temp_reservation(temp_dir, file_size)
 
     except Exception as e:
         logger.error(f"{prefix}transcode_file failed for '{path}': {e}")

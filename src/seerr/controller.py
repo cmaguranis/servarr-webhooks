@@ -32,9 +32,11 @@ def handle_seerr_webhook():
 
     headers = {"X-Api-Key": seerr_api_key, "accept": "application/json"}
     try:
-        data = requests.get(
-            f"{seerr_baseurl}/api/v1/{media_type}/{media_tmdbid}", headers=headers
-        ).json()
+        res = requests.get(
+            f"{seerr_baseurl}/api/v1/{media_type}/{media_tmdbid}", headers=headers, timeout=15
+        )
+        res.raise_for_status()
+        data = res.json()
     except Exception as e:
         logger.error(f"Seerr: failed to fetch metadata for {media_type} tmdbId={media_tmdbid} — {e}")
         return ("Error", 500)
@@ -50,6 +52,7 @@ def handle_seerr_webhook():
             f"{seerr_baseurl}/api/v1/request/{request_id}",
             headers=headers,
             json={"mediaType": "movie", "rootFolder": root_folder_anime_movies},
+            timeout=15,
         )
         if res.status_code in (200, 202):
             logger.info(f"Seerr: routed '{title}' to anime folder (requestId={request_id})")

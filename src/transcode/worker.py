@@ -37,18 +37,21 @@ def _run(job: dict):
             job_id=job_id,
         )
 
+        mark_done(job_id)
+        logger.info(f"Job {job_id} done: {path}")
+
         arr_id = meta.get("arr_id")
         arr_type = meta.get("arr_type")
         if arr_type and arr_id and not dry_run:
-            svc = radarr_service if arr_type == "radarr" else sonarr_service
-            svc.add_tag(arr_id, "transcoded")
-            if arr_type == "radarr":
-                radarr_service.rescan_movie(arr_id)
-            else:
-                sonarr_service.rescan_series(arr_id)
-
-        mark_done(job_id)
-        logger.info(f"Job {job_id} done: {path}")
+            try:
+                svc = radarr_service if arr_type == "radarr" else sonarr_service
+                svc.add_tag(arr_id, "transcoded")
+                if arr_type == "radarr":
+                    radarr_service.rescan_movie(arr_id)
+                else:
+                    sonarr_service.rescan_series(arr_id)
+            except Exception as e:
+                logger.warning(f"Job {job_id} done but post-transcode Arr update failed: {e}")
 
     except Exception as e:
         mark_failed(job_id)

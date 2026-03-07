@@ -37,7 +37,7 @@ def promote_cache():
     threshold_date = datetime.now(timezone.utc) - timedelta(days=8)
 
     try:
-        movies = _get_all_movies()
+        movies = radarr_service.get_all_movies()
         for movie in movies:
             updated = _update_media_path(movie, threshold_date)
             if updated:
@@ -63,10 +63,3 @@ def promote_cache():
     return jsonify({"status": "promotion check complete"}), 200
 
 
-def _get_all_movies():
-    import os, requests
-    base = os.getenv("RADARR_BASEURL", "").rstrip("/")
-    headers = {"X-Api-Key": os.getenv("RADARR_API_KEY", "")}
-    res = requests.get(f"{base}/api/v3/movie", headers=headers)
-    res.raise_for_status()
-    return res.json()

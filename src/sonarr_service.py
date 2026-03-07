@@ -5,6 +5,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 _tag_cache: dict[str, int] = {}
+_TIMEOUT = 15
 
 
 def _base():
@@ -16,13 +17,13 @@ def _headers():
 
 
 def get_series(series_id):
-    res = requests.get(f"{_base()}/api/v3/series/{series_id}", headers=_headers())
+    res = requests.get(f"{_base()}/api/v3/series/{series_id}", headers=_headers(), timeout=_TIMEOUT)
     res.raise_for_status()
     return res.json()
 
 
 def get_all_series():
-    res = requests.get(f"{_base()}/api/v3/series", headers=_headers())
+    res = requests.get(f"{_base()}/api/v3/series", headers=_headers(), timeout=_TIMEOUT)
     res.raise_for_status()
     return res.json()
 
@@ -33,6 +34,7 @@ def update_series(series):
         params={"moveFiles": "true"},
         headers=_headers(),
         json=series,
+        timeout=_TIMEOUT,
     )
     res.raise_for_status()
     return res.json()
@@ -41,13 +43,13 @@ def update_series(series):
 def get_or_create_tag(label: str) -> int:
     if label in _tag_cache:
         return _tag_cache[label]
-    res = requests.get(f"{_base()}/api/v3/tag", headers=_headers())
+    res = requests.get(f"{_base()}/api/v3/tag", headers=_headers(), timeout=_TIMEOUT)
     res.raise_for_status()
     for tag in res.json():
         _tag_cache[tag["label"]] = tag["id"]
     if label in _tag_cache:
         return _tag_cache[label]
-    res = requests.post(f"{_base()}/api/v3/tag", headers=_headers(), json={"label": label})
+    res = requests.post(f"{_base()}/api/v3/tag", headers=_headers(), json={"label": label}, timeout=_TIMEOUT)
     res.raise_for_status()
     tag_id = res.json()["id"]
     _tag_cache[label] = tag_id
@@ -68,6 +70,7 @@ def rescan_series(series_id: int):
         f"{_base()}/api/v3/command",
         headers=_headers(),
         json={"name": "RescanSeries", "seriesId": series_id},
+        timeout=_TIMEOUT,
     )
     res.raise_for_status()
     logger.info(f"Sonarr: rescan issued for series {series_id}")
