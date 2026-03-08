@@ -3,6 +3,7 @@ import logging
 
 from src import config
 from src.queue import JobQueue
+from src.transcode.encode import video_transcode_needed
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +17,12 @@ def init_db():
     _q.init_db()
 
 
+def _compute_priority(meta: dict) -> int:
+    return 1 if video_transcode_needed(meta.get("codec"), meta.get("bitrate_kbps")) else 2
+
+
 def enqueue_job(path: str, meta: dict) -> int | None:
-    return _q.enqueue_job(path, meta)
+    return _q.enqueue_job(path, meta, priority=_compute_priority(meta))
 
 
 def claim_pending_jobs(limit: int = 10) -> list:

@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS {table} (
   path       TEXT NOT NULL UNIQUE,
   meta       TEXT,
   status     TEXT NOT NULL DEFAULT 'pending',
+  priority   INTEGER NOT NULL DEFAULT 1,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 )
@@ -35,6 +36,10 @@ class JobQueue:
             conn = self._connect()
             try:
                 conn.execute(_SCHEMA_TEMPLATE.format(table=self._table))
+                try:
+                    conn.execute(f"ALTER TABLE {self._table} ADD COLUMN priority INTEGER NOT NULL DEFAULT 1")
+                except Exception:
+                    pass  # column already exists
                 conn.execute(
                     f"UPDATE {self._table} SET status='pending', updated_at=CURRENT_TIMESTAMP WHERE status='processing'"
                 )
@@ -43,13 +48,13 @@ class JobQueue:
                 conn.close()
         logger.info(f"{self._table} DB initialized")
 
-    def enqueue_job(self, path: str, meta: dict) -> int | None:
+    def enqueue_job(self, path: str, meta: dict, priority: int = 1) -> int | None:
         with self._lock:
             conn = self._connect()
             try:
                 cur = conn.execute(
-                    f"INSERT OR IGNORE INTO {self._table} (path, meta, status) VALUES (?, ?, 'pending')",
-                    (path, json.dumps(meta)),
+                    f"INSERT OR IGNORE INTO {self._table} (path, meta, status, priority) VALUES (?, ?, 'pending', ?)",
+                    (path, json.dumps(meta), priority),
                 )
                 conn.commit()
                 job_id = cur.lastrowid if cur.rowcount else None
@@ -66,7 +71,7 @@ class JobQueue:
             conn = self._connect()
             try:
                 rows = conn.execute(
-                    f"SELECT * FROM {self._table} WHERE status='pending' ORDER BY created_at LIMIT ?",
+                    f"SELECT * FROM {self._table} WHERE status='pending' ORDER BY priority DESC, created_at ASC LIMIT ?",
                     (limit,),
                 ).fetchall()
                 if rows:

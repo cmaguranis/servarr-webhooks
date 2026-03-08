@@ -16,6 +16,11 @@ TRANSCODE_TEMP_FALLBACK = os.getenv("TRANSCODE_TEMP_FALLBACK", "/transcode-temp"
 
 HEVC_ALIASES = {"x265", "h265", "h.265", "hevc"}
 
+
+def video_transcode_needed(codec: str | None, bitrate_kbps: int | None) -> bool:
+    codec_norm = (codec or "").lower().replace(" ", "")
+    return not (codec_norm in HEVC_ALIASES and bitrate_kbps and bitrate_kbps <= 8000)
+
 # QSV hardware decoders for common input codecs (Gen 8+ iGPU).
 # Keeping frames on the GPU avoids a CPU↔GPU copy before hevc_qsv encoding.
 _QSV_DECODER = {
@@ -69,6 +74,7 @@ def transcode_file(
     job_id: int | None = None,
     output_path: str | None = None,
     start_sec: int | None = None,
+    slice_duration: int | None = None,
 ):
     prefix = f"[job {job_id}] " if job_id is not None else ""
 
@@ -126,7 +132,7 @@ def transcode_file(
         needs_sub_strip = image_sub_count > 0
 
         codec_norm = (codec or "").lower().replace(" ", "")
-        needs_video = not (codec_norm in HEVC_ALIASES and bitrate_kbps and bitrate_kbps <= 8000)
+        needs_video = video_transcode_needed(codec, bitrate_kbps)
         logger.info(f"{prefix}Needs video transcode: {needs_video} (codec={codec}, bitrate={bitrate_kbps}kbps)")
 
         duration = float(fmt.get("duration") or 0)
@@ -145,7 +151,7 @@ def transcode_file(
 
         # Build ffmpeg command — use QSV hw decode when available to keep
         # frames on GPU and avoid CPU↔GPU copy before hevc_qsv encoding.
-        slice_args = ["-ss", str(start_sec), "-t", "30"] if start_sec is not None else []
+        slice_args = ["-ss", str(start_sec), "-t", str(slice_duration or 30)] if start_sec is not None else []
 
         qsv_decoder = _QSV_DECODER.get(codec_norm) if needs_video else None
         if qsv_decoder:

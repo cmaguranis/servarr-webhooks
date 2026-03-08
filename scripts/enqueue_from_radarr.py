@@ -86,6 +86,7 @@ def main():
     parser.add_argument("--retry", action="store_true", help="Retry the existing job for this movie instead of enqueuing a new one")
     parser.add_argument("--media-test", action="store_true", help="Slice and transcode to /data/media_test instead of in-place")
     parser.add_argument("--start-sec", type=int, help="Exact slice start point in seconds (random if omitted)")
+    parser.add_argument("--slice-duration", type=int, default=30, help="Slice duration in seconds (default: 30)")
     parser.add_argument("--radarr-url", required=True, help="Radarr base URL, e.g. http://radarr:7878")
     parser.add_argument("--radarr-key", required=True, help="Radarr API key")
     parser.add_argument("--webhook-url", default="http://localhost:5001",
@@ -134,6 +135,8 @@ def main():
                 qs.append("media_test=true")
                 if args.start_sec is not None:
                     qs.append(f"start_sec={args.start_sec}")
+                if args.slice_duration != 30:
+                    qs.append(f"slice_duration={args.slice_duration}")
             if qs:
                 url += "?" + "&".join(qs)
             print(f"\nPOST {url}")

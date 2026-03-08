@@ -20,17 +20,20 @@ TRANSCODE_WORKERS = int(os.getenv("TRANSCODE_WORKERS", "1"))
 def _execute(path: str, meta: dict, job_id: int, dry_run: bool):
     output_path = None
     start_sec = None
+    slice_duration = None
 
     if meta.get("media_test"):
+        slice_duration = meta.get("slice_duration") or _SLICE_DURATION
+
         info = get_stream_info(path)
         duration = float(info.get("format", {}).get("duration") or 0)
         start_sec = meta.get("start_sec")
         if start_sec is None:
-            max_start = int(duration) - _SLICE_DURATION - 1
+            max_start = int(duration) - slice_duration - 1
             start_sec = random.randint(0, max(0, max_start))
         output_path = build_output_path(path, start_sec, MEDIA_TEST_OUTPUT_DIR)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        logger.info(f"[job {job_id}] media_test mode: slicing from {start_sec}s → {output_path}")
+        logger.info(f"[job {job_id}] media_test mode: slicing {slice_duration}s from {start_sec}s → {output_path}")
 
     transcode_file(
         path,
@@ -42,6 +45,7 @@ def _execute(path: str, meta: dict, job_id: int, dry_run: bool):
         job_id=job_id,
         output_path=output_path,
         start_sec=start_sec,
+        slice_duration=slice_duration,
     )
 
 

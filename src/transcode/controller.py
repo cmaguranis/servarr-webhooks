@@ -55,6 +55,7 @@ def transcode_webhook():
 
     media_test = request.args.get("media_test", "").lower() == "true"
     start_sec_raw = request.args.get("start_sec")
+    slice_duration_raw = request.args.get("slice_duration")
     meta = {
         "codec": media_info.get("videoCodec"),
         "bitrate_kbps": media_info.get("videoBitrate"),
@@ -65,6 +66,7 @@ def transcode_webhook():
         "dry_run": request.args.get("dry_run", "").lower() == "true",
         "media_test": media_test,
         "start_sec": int(start_sec_raw) if start_sec_raw else None,
+        "slice_duration": int(slice_duration_raw) if slice_duration_raw else None,
     }
 
     enqueue_job(file_info["path"], meta)
