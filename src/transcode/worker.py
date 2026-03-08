@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 
 from src import radarr_service, sonarr_service
 from src.transcode.queue import claim_pending_jobs, mark_done, mark_failed, cleanup_jobs, requeue_job
-from src.transcode.ffmpeg import transcode_file
+from src.transcode.encode import transcode_file
 
 logger = logging.getLogger(__name__)
 
@@ -19,36 +19,12 @@ _stop_flag = threading.Event()
 _executor: ThreadPoolExecutor | None = None
 
 
-def _enrich_meta(meta: dict, job_id: int) -> dict:
-    """Fetch accurate bitrate from the Arr API if the webhook payload had none.
-    Radarr/Sonarr report videoBitrate in bps; divide by 1000 for kbps."""
-    if meta.get("bitrate_kbps"):
-        return meta
-    arr_type = meta.get("arr_type")
-    arr_file_id = meta.get("arr_file_id")
-    if not arr_type or not arr_file_id:
-        return meta
-    try:
-        if arr_type == "radarr":
-            file_data = radarr_service.get_movie_file(arr_file_id)
-        else:
-            file_data = sonarr_service.get_episode_file(arr_file_id)
-        bitrate_bps = (file_data or {}).get("mediaInfo", {}).get("videoBitrate") or 0
-        if bitrate_bps:
-            meta = {**meta, "bitrate_kbps": bitrate_bps // 1000}
-            logger.info(f"[job {job_id}] Enriched bitrate from API: {meta['bitrate_kbps']} kbps")
-    except Exception as e:
-        logger.warning(f"[job {job_id}] Could not fetch media info from API: {e}")
-    return meta
-
-
 def _run(job: dict):
     meta = json.loads(job.get("meta") or "{}")
     path = job["path"]
     job_id = job["id"]
     dry_run = meta.get("dry_run", False)
 
-    meta = _enrich_meta(meta, job_id)
     logger.info(f"[job {job_id}] Starting: {path} (dry_run={dry_run})")
     try:
         transcode_file(

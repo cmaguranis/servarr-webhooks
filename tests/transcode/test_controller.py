@@ -155,11 +155,6 @@ class TestRadarrEnqueue:
         assert meta["codec"] == "AVC"
         assert meta["bitrate_kbps"] == 12000
 
-    def test_meta_arr_file_id(self, client, mocks):
-        _post(client, RADARR_PAYLOAD)
-        _, meta = mocks["enqueue"].call_args.args
-        assert meta["arr_file_id"] == 10
-
     def test_meta_has_51_true_for_6_channels(self, client, mocks):
         _post(client, RADARR_PAYLOAD)
         _, meta = mocks["enqueue"].call_args.args
