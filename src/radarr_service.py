@@ -93,3 +93,16 @@ def rescan_movie(movie_id: int):
     )
     res.raise_for_status()
     logger.info(f"Radarr: rescan issued for movie {movie_id}")
+
+
+def trigger_import_scan(path: str) -> dict:
+    res = requests.post(
+        f"{_base()}/api/v3/command",
+        headers=_headers(),
+        json={"name": "DownloadedMoviesScan", "path": path},
+        timeout=_TIMEOUT,
+    )
+    res.raise_for_status()
+    data = res.json()
+    logger.info(f"Radarr: import scan triggered for '{path}' (commandId={data.get('id')})")
+    return data

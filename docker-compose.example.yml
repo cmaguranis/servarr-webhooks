@@ -26,4 +26,9 @@ services:
       - ${{ sf:"cache" }}:/data:rshared
     devices:
       - /dev/dri:/dev/dri
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "7"
     cpu_shares: 512

@@ -148,7 +148,53 @@ http://your-sonarr-host:8989/api/v3/qualityprofile?apikey=your_key
 
 ---
 
+## Manual Import Scan
+
+Triggers Radarr or Sonarr to scan a folder for new files, import them into the library, and fire all configured On Import webhooks (including the transcode webhook).
+
+```
+POST http://your-host:5001/import-scan
+```
+
+Body:
+
+| Field | Type | Description |
+|---|---|---|
+| `path` | string | **Required.** Absolute path to the folder or file to import |
+| `arr` | string | Which service to notify: `radarr`, `sonarr`, or `both` (default: `both`) |
+
+```bash
+# Import a movie (Radarr only)
+curl -X POST http://localhost:5001/import-scan \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/media/import/The Dark Knight (2008)", "arr": "radarr"}'
+
+# Import a TV episode (Sonarr only)
+curl -X POST http://localhost:5001/import-scan \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/media/import/Breaking Bad/Season 01", "arr": "sonarr"}'
+
+# Try both (useful when unsure which app owns the file)
+curl -X POST http://localhost:5001/import-scan \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/media/import/some-file.mkv"}'
+```
+
+Response:
+```json
+{
+  "radarr": {"status": "queued", "commandId": 42},
+  "sonarr": {"status": "queued", "commandId": 17}
+}
+```
+
+Radarr issues `DownloadedMoviesScan`; Sonarr issues `DownloadedEpisodesScan`. Both match, rename, and move the file into the library, then fire their On Import webhooks. Errors from one service do not block the other.
+
+---
+
 ## Manual Testing
+
+### Synthetic payloads
 
 Use `scripts/test_webhooks.py` to fire sample payloads at the running service:
 
@@ -165,6 +211,57 @@ python scripts/test_webhooks.py seerr
 # Trigger promote-cache sweep
 python scripts/test_webhooks.py promote
 
+# Skip-group check (YIFY — should return 200 without enqueuing)
+python scripts/test_webhooks.py skip-group
+
+# Non-download event (eventType=Test — should return 200 without enqueuing)
+python scripts/test_webhooks.py non-download
+
+# List all jobs
+python scripts/test_webhooks.py jobs
+
+# Retry a specific job
+python scripts/test_webhooks.py --job-id 3 retry
+
 # Point at a non-local host
 python scripts/test_webhooks.py --url http://192.168.1.10:5001 radarr
 ```
+
+### Real media from Radarr/Sonarr
+
+Use `scripts/enqueue_from_radarr.py` or `scripts/enqueue_from_sonarr.py` to fetch real file metadata from the Arr apps and fire the transcode webhook exactly as the app would on import. Requires [uv](https://github.com/astral-sh/uv) — dependencies are installed automatically.
+
+**Radarr:**
+
+```bash
+# Search by title (prints the movie ID, then fires the webhook)
+uv run scripts/enqueue_from_radarr.py \
+  --radarr-url http://radarr:7878 --radarr-key KEY \
+  --search "The Dark Knight"
+
+# By movie ID, dry-run (analysis only, no encode)
+uv run scripts/enqueue_from_radarr.py \
+  --radarr-url http://radarr:7878 --radarr-key KEY \
+  --movie-id 42 --dry-run
+```
+
+**Sonarr:**
+
+```bash
+# Step 1: list episode files for a series
+uv run scripts/enqueue_from_sonarr.py \
+  --sonarr-url http://sonarr:8989 --sonarr-key KEY \
+  --search "Breaking Bad"
+
+# Step 2: enqueue a specific episode file by ID
+uv run scripts/enqueue_from_sonarr.py \
+  --sonarr-url http://sonarr:8989 --sonarr-key KEY \
+  --series-id 7 --episode-file-id 42
+
+# Dry-run
+uv run scripts/enqueue_from_sonarr.py \
+  --sonarr-url http://sonarr:8989 --sonarr-key KEY \
+  --series-id 7 --episode-file-id 42 --dry-run
+```
+
+Both scripts print the full payload before firing it and show the HTTP status and response body.

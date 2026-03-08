@@ -110,7 +110,9 @@ def _pick_temp_dir(required: int) -> str:
         if free - _primary_reserved >= required:
             _primary_reserved += required
             return TRANSCODE_TEMP_PRIMARY
-    logger.warning(f"Not enough space in {TRANSCODE_TEMP_PRIMARY}, using {TRANSCODE_TEMP_FALLBACK}")
+    available_mb = (free - _primary_reserved) // (1024 * 1024)
+    required_mb = required // (1024 * 1024)
+    logger.warning(f"Not enough space in {TRANSCODE_TEMP_PRIMARY} ({available_mb} MB available, {required_mb} MB needed), using {TRANSCODE_TEMP_FALLBACK}")
     os.makedirs(TRANSCODE_TEMP_FALLBACK, exist_ok=True)
     return TRANSCODE_TEMP_FALLBACK
 
@@ -144,8 +146,9 @@ def transcode_file(
         s_streams = [s for s in streams if s["codec_type"] == "subtitle"]
         if codec is None:
             codec = v_stream.get("codec_name", "")
-        if bitrate_kbps is None:
-            bitrate_kbps = int(fmt.get("bitrate", 0)) // 1000
+        ffprobe_bitrate = int(v_stream.get("bit_rate") or fmt.get("bitrate") or 0) // 1000
+        if not bitrate_kbps:  # 0, None, or missing from webhook
+            bitrate_kbps = ffprobe_bitrate
         if orig_lang is None:
             main_audio = a_streams[0] if a_streams else {}
             orig_lang = main_audio.get("tags", {}).get("language", "eng")
@@ -255,6 +258,7 @@ def transcode_file(
         file_size = os.path.getsize(path)
         temp_dir = _pick_temp_dir(file_size)
         tmp = os.path.join(temp_dir, f"{uuid.uuid4().hex}.mkv")
+        logger.info(f"{prefix}ffmpeg command: {' '.join(cmd + [tmp])}")
         logger.info(f"{prefix}Encoding to temp file in {temp_dir}...")
         try:
             if needs_video:
@@ -265,7 +269,10 @@ def transcode_file(
                 result = subprocess.run(cmd + [tmp], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
             if result.returncode != 0:
                 raise RuntimeError(f"ffmpeg exited {result.returncode}: {result.stderr[-500:]}")
-            shutil.move(tmp, path)
+            try:
+                os.replace(tmp, path)  # atomic if same filesystem
+            except OSError:
+                shutil.copy2(tmp, path)  # cross-device fallback; finally block cleans tmp
             logger.info(f"{prefix}Transcode complete: '{path}'")
         finally:
             if os.path.exists(tmp):

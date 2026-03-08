@@ -7,7 +7,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 
 from src import radarr_service, sonarr_service
-from src.transcode.queue import claim_pending_jobs, mark_done, mark_failed, cleanup_jobs
+from src.transcode.queue import claim_pending_jobs, mark_done, mark_failed, cleanup_jobs, requeue_job
 from src.transcode.ffmpeg import transcode_file
 
 logger = logging.getLogger(__name__)
@@ -37,8 +37,12 @@ def _run(job: dict):
             job_id=job_id,
         )
 
-        mark_done(job_id)
-        logger.info(f"Job {job_id} done: {path}")
+        if dry_run:
+            requeue_job(job_id, dry_run=False)
+            logger.info(f"[job {job_id}] Dry run complete, requeued for real transcode: {path}")
+        else:
+            mark_done(job_id)
+            logger.info(f"[job {job_id}] Done: {path}")
 
         arr_id = meta.get("arr_id")
         arr_type = meta.get("arr_type")
