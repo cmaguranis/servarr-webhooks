@@ -1,0 +1,76 @@
+import json
+import logging
+import subprocess
+
+logger = logging.getLogger(__name__)
+
+LOUDNESS_SAMPLE_SECONDS = 300  # fixed 5-minute window
+
+_AUDIO_FILTER_PREFIX = "aresample=48000,aformat=sample_fmts=fltp"
+
+
+def _run_loudnorm(path: str, audio_map: str, duration: float | None) -> dict | None:
+    cmd = ["ffmpeg"]
+    if duration and duration > 0:
+        skip = duration * 0.10
+        cmd += ["-ss", f"{skip:.1f}"]
+    cmd += ["-i", path, "-t", str(LOUDNESS_SAMPLE_SECONDS)]
+    # channel_layouts=stereo forces downmix before loudnorm — avoids EAC3 Atmos object-audio issues.
+    cmd += ["-vn", "-map", audio_map, "-af",
+            "aresample=48000,aformat=sample_fmts=fltp,loudnorm=print_format=json",
+            "-f", "null", "-"]
+    logger.info(f"loudnorm command: {' '.join(cmd)}")
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    json_start = res.stderr.rfind("{")
+    if json_start == -1:
+        logger.warning(f"loudnorm stderr tail ({audio_map}): {res.stderr[-500:]}")
+        return None
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(res.stderr, json_start)
+        return obj
+    except Exception:
+        logger.warning(f"loudnorm stderr tail ({audio_map}): {res.stderr[-500:]}")
+        return None
+
+
+def get_loudness_stats(
+    path: str,
+    orig_lang: str | None = None,
+    duration: float | None = None,
+) -> dict | None:
+    # Skip the first 10% of the file (intro/credits), then sample up to 5 minutes.
+    # Prefer language-tagged stream; fall back to first audio stream (0:a:0) on failure
+    # — EAC3 Atmos language selectors can fail to match even when the language is correct.
+    audio_map = f"0:a:m:language:{orig_lang}" if orig_lang else "0:a:0"
+    result = _run_loudnorm(path, audio_map, duration)
+    if result is None and orig_lang:
+        logger.warning(f"Loudnorm failed with language map '{audio_map}', retrying with 0:a:0")
+        result = _run_loudnorm(path, "0:a:0", duration)
+    return result
+
+
+def _audio_needs(stats: dict | None) -> tuple[bool, bool]:
+    if not stats:
+        return True, True
+    lufs = float(stats.get("input_i", 0))
+    lra = float(stats.get("input_lra", 0))
+    needs_loudnorm = lufs > -14.0 or lufs < -18.0
+    needs_dynaudnorm = lra > 12.0
+    return needs_loudnorm, needs_dynaudnorm
+
+
+def _build_audio_filter(stats: dict | None, needs_loudnorm: bool, needs_dynaudnorm: bool) -> str:
+    parts = [_AUDIO_FILTER_PREFIX]
+    if needs_loudnorm and stats:
+        parts.append(
+            f"loudnorm=I=-16:LRA=7:TP=-1.5"
+            f":measured_I={stats['input_i']}"
+            f":measured_LRA={stats['input_lra']}"
+            f":measured_TP={stats['input_tp']}"
+            f":measured_thresh={stats['input_thresh']}"
+        )
+    elif needs_loudnorm:
+        parts.append("loudnorm=I=-16:LRA=7:TP=-1.5")
+    if needs_dynaudnorm:
+        parts.append("dynaudnorm=f=150:g=15")
+    return ",".join(parts)
