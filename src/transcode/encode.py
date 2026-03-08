@@ -140,13 +140,6 @@ def transcode_file(
             logger.info(f"{prefix}No transcode needed: '{path}'")
             return
 
-        if dry_run:
-            logger.info(
-                f"{prefix}[DRY RUN] '{path}': video={needs_video}, loudnorm={needs_loudnorm}, "
-                f"dynaudnorm={needs_dynaudnorm}, lang={orig_lang}, 5.1={has_51}, sub_strip={needs_sub_strip}"
-            )
-            return
-
         # Build ffmpeg command — use QSV hw decode when available to keep
         # frames on GPU and avoid CPU↔GPU copy before hevc_qsv encoding.
         qsv_decoder = _QSV_DECODER.get(codec_norm) if needs_video else None
@@ -200,6 +193,10 @@ def transcode_file(
             cmd += ["-map", f"0:{idx}"]
         if text_sub_indices:
             cmd += ["-c:s", "copy"]
+
+        if dry_run:
+            logger.info(f"{prefix}[DRY RUN] ffmpeg command: {' '.join(cmd + ['<output.mkv>'])}")
+            return
 
         file_size = os.path.getsize(path)
         temp_dir = _pick_temp_dir(file_size)
