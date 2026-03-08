@@ -54,14 +54,15 @@ class Worker:
                 self._queue.requeue_job(job_id, dry_run=False)
                 logger.info(f"[job {job_id}] Dry run complete, requeued: {path}")
             else:
-                self._queue.mark_done(job_id)
+                self._queue.mark_done(job_id, result="ok")
                 logger.info(f"[job {job_id}] Done: {path}")
                 if self._on_complete:
                     self._on_complete(job_id, meta)
 
         except Exception as e:
-            self._queue.mark_failed(job_id)
-            logger.error(f"[job {job_id}] Failed: {path} — {e}", exc_info=True)
+            error_msg = str(e)
+            self._queue.mark_failed(job_id, error=error_msg)
+            logger.error(f"[job {job_id}] Failed: {path} — {error_msg}", exc_info=True)
 
     def _loop(self):
         last_cleanup = 0.0

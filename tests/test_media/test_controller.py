@@ -50,6 +50,9 @@ def mocks():
             "list_jobs": stack.enter_context(
                 patch("src.test_media.controller.list_jobs", return_value=[])
             ),
+            "clear_jobs": stack.enter_context(
+                patch("src.test_media.controller.clear_jobs", return_value=0)
+            ),
             "randint": stack.enter_context(
                 patch("src.test_media.controller.random.randint", return_value=50)
             ),
@@ -96,7 +99,7 @@ class TestNoFiles:
         mocks["walk"].return_value = []
         data = client.post("/media-test/generate").get_json()
         assert data["enqueued"] == []
-        assert data["skipped"] == 0
+        assert data["skipped"] == []
 
     def test_non_media_files_ignored(self, client, mocks):
         mocks["walk"].return_value = [("/data/media_cache", [], ["cover.jpg", "info.txt"])]
@@ -209,7 +212,7 @@ class TestEnqueue:
         mocks["enqueue"].return_value = None  # INSERT OR IGNORE no-op
 
         data = client.post("/media-test/generate").get_json()
-        assert data["skipped"] == 1
+        assert len(data["skipped"]) == 1
         assert data["enqueued"] == []
 
     def test_returns_202(self, client, mocks):
@@ -296,6 +299,33 @@ class TestGetJobs:
         data = client.get("/media-test/jobs").get_json()
         # dict meta passes through (not double-deserialized)
         assert data["jobs"][0]["meta"] == {"source_path": "/src.mkv"}
+
+
+# ---------------------------------------------------------------------------
+# DELETE /media-test/jobs
+# ---------------------------------------------------------------------------
+
+class TestDeleteJobs:
+    def test_missing_status_returns_400(self, client, mocks):
+        rv = client.delete("/media-test/jobs")
+        assert rv.status_code == 400
+        assert "status" in rv.get_json()["error"]
+
+    def test_returns_deleted_count(self, client, mocks):
+        mocks["clear_jobs"].return_value = 3
+        rv = client.delete("/media-test/jobs?status=done")
+        assert rv.status_code == 200
+        assert rv.get_json()["deleted"] == 3
+
+    def test_passes_status_to_clear_jobs(self, client, mocks):
+        client.delete("/media-test/jobs?status=failed")
+        mocks["clear_jobs"].assert_called_once_with("failed")
+
+    def test_zero_deleted_still_returns_200(self, client, mocks):
+        mocks["clear_jobs"].return_value = 0
+        rv = client.delete("/media-test/jobs?status=pending")
+        assert rv.status_code == 200
+        assert rv.get_json()["deleted"] == 0
 
 
 # ---------------------------------------------------------------------------

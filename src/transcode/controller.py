@@ -1,8 +1,12 @@
+import json
 import logging
+import os
 from flask import Blueprint, request
 
 from src import config, radarr_service, sonarr_service
-from src.transcode.queue import enqueue_job, list_jobs, requeue_job
+from src.media_extensions import MEDIA_EXTENSIONS
+from src.transcode.queue import clear_jobs, enqueue_job, list_jobs, requeue_job
+from src.transcode.probe import get_stream_info
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +85,23 @@ def transcode_webhook():
 def get_jobs():
     status = request.args.get("status")  # optional filter: pending, processing, done, failed
     jobs = list_jobs(status)
+    for job in jobs:
+        if isinstance(job.get("meta"), str):
+            try:
+                job["meta"] = json.loads(job["meta"])
+            except (json.JSONDecodeError, TypeError):
+                pass
     return ({"jobs": jobs}, 200)
+
+
+@bp.route("/transcode/jobs", methods=["DELETE"])
+def delete_jobs():
+    status = request.args.get("status")
+    if not status:
+        return ({"error": "Missing required query param: status"}, 400)
+    deleted = clear_jobs(status)
+    logger.info(f"Cleared {deleted} transcode jobs with status={status}")
+    return ({"deleted": deleted}, 200)
 
 
 @bp.route("/transcode/jobs/<int:job_id>/retry", methods=["POST"])
@@ -92,3 +112,67 @@ def retry_job(job_id):
         return ({"error": f"Job {job_id} not found"}, 404)
     logger.info(f"Requeued job {job_id} (dry_run={dry_run})")
     return ("", 202)
+
+
+@bp.route("/transcode/enqueue-folder", methods=["POST"])
+def enqueue_folder():
+    """Scan a folder for media files and enqueue transcode jobs for each.
+
+    Body (JSON): {"path": "/data/media_test"}
+    Query params: ?dry_run=true
+    """
+    dry_run = request.args.get("dry_run", "").lower() == "true"
+    body = request.get_json(silent=True) or {}
+    folder = (body.get("path") or "").strip()
+
+    if not folder:
+        return ({"error": "Missing required field: path"}, 400)
+    if not os.path.isdir(folder):
+        return ({"error": f"Directory does not exist: {folder}"}, 400)
+
+    enqueued = []
+    skipped  = []
+    errors   = []
+
+    for dirpath, _dirnames, filenames in os.walk(folder):
+        for fname in filenames:
+            if os.path.splitext(fname)[1].lower() not in MEDIA_EXTENSIONS:
+                continue
+            path = os.path.join(dirpath, fname)
+            try:
+                info    = get_stream_info(path)
+                streams = info.get("streams") or []
+                video   = next((s for s in streams if s.get("codec_type") == "video"), {})
+                audio   = next((s for s in streams if s.get("codec_type") == "audio"), {})
+
+                # Prefer audio language tag if present
+                audio_lang = (audio.get("tags") or {}).get("language")
+
+                meta = {
+                    "codec":        video.get("codec_name"),
+                    "bitrate_kbps": int(float(info.get("format", {}).get("bit_rate", 0))) // 1000 or None,
+                    "orig_lang":    audio_lang,
+                    "has_51":       (audio.get("channels") or 0) > 5,
+                    "arr_type":     None,
+                    "arr_id":       None,
+                    "dry_run":      dry_run,
+                }
+            except Exception as e:
+                logger.warning(f"enqueue-folder: ffprobe failed for {path} — {e}")
+                errors.append({"path": path, "error": str(e)})
+                continue
+
+            job_id = enqueue_job(path, meta)
+            if job_id is not None:
+                logger.info(f"enqueue-folder: enqueued job {job_id} for {path}")
+                enqueued.append({"job_id": job_id, "path": path})
+            else:
+                logger.info(f"enqueue-folder: skipped duplicate {path}")
+                skipped.append(path)
+
+    logger.info(
+        f"enqueue-folder {folder}: {len(enqueued)} enqueued, "
+        f"{len(skipped)} skipped, {len(errors)} errors"
+        + (" (dry_run)" if dry_run else "")
+    )
+    return ({"enqueued": enqueued, "skipped": skipped, "errors": errors}, 202)

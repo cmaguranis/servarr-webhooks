@@ -80,20 +80,31 @@ class JobQueue:
             finally:
                 conn.close()
 
-    def mark_done(self, job_id: int):
-        self._set_status(job_id, "done")
+    def mark_done(self, job_id: int, result: str | None = None):
+        self._set_status(job_id, "done", {"result": result} if result else None)
 
-    def mark_failed(self, job_id: int):
-        self._set_status(job_id, "failed")
+    def mark_failed(self, job_id: int, error: str | None = None):
+        self._set_status(job_id, "failed", {"error": error} if error else None)
 
-    def _set_status(self, job_id: int, status: str):
+    def _set_status(self, job_id: int, status: str, meta_update: dict | None = None):
         with self._lock:
             conn = self._connect()
             try:
-                conn.execute(
-                    f"UPDATE {self._table} SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                    (status, job_id),
-                )
+                if meta_update:
+                    row = conn.execute(
+                        f"SELECT meta FROM {self._table} WHERE id=?", (job_id,)
+                    ).fetchone()
+                    meta = json.loads((row["meta"] if row else None) or "{}")
+                    meta.update(meta_update)
+                    conn.execute(
+                        f"UPDATE {self._table} SET status=?, meta=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                        (status, json.dumps(meta), job_id),
+                    )
+                else:
+                    conn.execute(
+                        f"UPDATE {self._table} SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                        (status, job_id),
+                    )
                 conn.commit()
             finally:
                 conn.close()
@@ -135,6 +146,19 @@ class JobQueue:
                 )
                 conn.commit()
                 return True
+            finally:
+                conn.close()
+
+    def clear_jobs(self, status: str) -> int:
+        """Delete all jobs with the given status. Returns the number of rows deleted."""
+        with self._lock:
+            conn = self._connect()
+            try:
+                cur = conn.execute(
+                    f"DELETE FROM {self._table} WHERE status=?", (status,)
+                )
+                conn.commit()
+                return cur.rowcount
             finally:
                 conn.close()
 

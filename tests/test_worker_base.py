@@ -49,7 +49,7 @@ class TestRunSuccess:
     def test_marks_done_on_success(self):
         worker, queue = _make_worker()
         worker._run(_make_job())
-        queue.mark_done.assert_called_once_with(1)
+        queue.mark_done.assert_called_once_with(1, result="ok")
 
     def test_calls_on_complete_after_success(self):
         on_complete = MagicMock()
@@ -106,7 +106,13 @@ class TestRunFailure:
         execute_fn = MagicMock(side_effect=RuntimeError("boom"))
         worker, queue = _make_worker(execute_fn=execute_fn)
         worker._run(_make_job())
-        queue.mark_failed.assert_called_once_with(1)
+        queue.mark_failed.assert_called_once_with(1, error="boom")
+
+    def test_error_message_stored_in_mark_failed(self):
+        execute_fn = MagicMock(side_effect=RuntimeError("ffmpeg exited 1: error details"))
+        worker, queue = _make_worker(execute_fn=execute_fn)
+        worker._run(_make_job())
+        assert "ffmpeg exited 1" in queue.mark_failed.call_args.kwargs["error"]
 
     def test_mark_done_not_called_on_exception(self):
         execute_fn = MagicMock(side_effect=RuntimeError("boom"))

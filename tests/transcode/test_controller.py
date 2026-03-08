@@ -42,6 +42,9 @@ def mocks():
             "list_jobs": stack.enter_context(
                 patch("src.transcode.controller.list_jobs", return_value=[])
             ),
+            "clear_jobs": stack.enter_context(
+                patch("src.transcode.controller.clear_jobs", return_value=0)
+            ),
             "requeue": stack.enter_context(
                 patch("src.transcode.controller.requeue_job", return_value=True)
             ),
@@ -350,6 +353,33 @@ class TestListJobs:
 
 
 # ---------------------------------------------------------------------------
+# DELETE /transcode/jobs
+# ---------------------------------------------------------------------------
+
+class TestDeleteJobs:
+    def test_missing_status_returns_400(self, client, mocks):
+        rv = client.delete("/transcode/jobs")
+        assert rv.status_code == 400
+        assert "status" in rv.get_json()["error"]
+
+    def test_returns_deleted_count(self, client, mocks):
+        mocks["clear_jobs"].return_value = 5
+        rv = client.delete("/transcode/jobs?status=done")
+        assert rv.status_code == 200
+        assert rv.get_json()["deleted"] == 5
+
+    def test_passes_status_to_clear_jobs(self, client, mocks):
+        client.delete("/transcode/jobs?status=failed")
+        mocks["clear_jobs"].assert_called_once_with("failed")
+
+    def test_zero_deleted_still_returns_200(self, client, mocks):
+        mocks["clear_jobs"].return_value = 0
+        rv = client.delete("/transcode/jobs?status=done")
+        assert rv.status_code == 200
+        assert rv.get_json()["deleted"] == 0
+
+
+# ---------------------------------------------------------------------------
 # POST /transcode/jobs/<id>/retry
 # ---------------------------------------------------------------------------
 
@@ -374,3 +404,127 @@ class TestRetryJob:
         mocks["requeue"].return_value = True
         client.post("/transcode/jobs/1/retry")
         mocks["requeue"].assert_called_once_with(1, dry_run=False)
+
+
+# ---------------------------------------------------------------------------
+# POST /transcode/enqueue-folder
+# ---------------------------------------------------------------------------
+
+_PROBE_RESULT = {
+    "format": {"bit_rate": "8000000"},
+    "streams": [
+        {"codec_type": "video", "codec_name": "hevc"},
+        {"codec_type": "audio", "codec_name": "eac3", "channels": 8,
+         "tags": {"language": "eng"}},
+    ],
+}
+
+
+@pytest.fixture
+def folder_mocks():
+    with ExitStack() as stack:
+        yield {
+            "isdir": stack.enter_context(
+                patch("src.transcode.controller.os.path.isdir", return_value=True)
+            ),
+            "walk": stack.enter_context(
+                patch("src.transcode.controller.os.walk", return_value=[])
+            ),
+            "probe": stack.enter_context(
+                patch("src.transcode.controller.get_stream_info", return_value=_PROBE_RESULT)
+            ),
+            "enqueue": stack.enter_context(
+                patch("src.transcode.controller.enqueue_job", return_value=1)
+            ),
+        }
+
+
+class TestEnqueueFolder:
+    def _post(self, client, path="/data/media_test", query=""):
+        return client.post(
+            f"/transcode/enqueue-folder{query}",
+            data=json.dumps({"path": path}),
+            content_type="application/json",
+        )
+
+    def test_missing_path_returns_400(self, client, folder_mocks):
+        rv = client.post("/transcode/enqueue-folder",
+                         data=json.dumps({}), content_type="application/json")
+        assert rv.status_code == 400
+        assert "path" in rv.get_json()["error"]
+
+    def test_nonexistent_dir_returns_400(self, client, folder_mocks):
+        folder_mocks["isdir"].return_value = False
+        rv = self._post(client)
+        assert rv.status_code == 400
+        assert "does not exist" in rv.get_json()["error"]
+
+    def test_empty_folder_returns_202_with_empty_lists(self, client, folder_mocks):
+        folder_mocks["walk"].return_value = []
+        rv = self._post(client)
+        assert rv.status_code == 202
+        data = rv.get_json()
+        assert data["enqueued"] == []
+        assert data["skipped"] == []
+        assert data["errors"] == []
+
+    def test_non_media_files_ignored(self, client, folder_mocks):
+        folder_mocks["walk"].return_value = [("/data/media_test", [], ["cover.jpg", "info.txt"])]
+        rv = self._post(client)
+        assert rv.get_json()["enqueued"] == []
+        folder_mocks["probe"].assert_not_called()
+
+    def test_enqueues_media_file_and_returns_job(self, client, folder_mocks):
+        folder_mocks["walk"].return_value = [
+            ("/data/media_test", [], ["clip.mkv"])
+        ]
+        rv = self._post(client)
+        data = rv.get_json()
+        assert len(data["enqueued"]) == 1
+        assert data["enqueued"][0]["job_id"] == 1
+        assert data["enqueued"][0]["path"] == "/data/media_test/clip.mkv"
+
+    def test_meta_derived_from_probe(self, client, folder_mocks):
+        folder_mocks["walk"].return_value = [("/data/media_test", [], ["clip.mkv"])]
+        self._post(client)
+        _, meta = folder_mocks["enqueue"].call_args.args
+        assert meta["codec"] == "hevc"
+        assert meta["has_51"] is True   # 8 channels > 5
+        assert meta["orig_lang"] == "eng"
+        assert meta["arr_type"] is None
+        assert meta["arr_id"] is None
+
+    def test_bitrate_converted_to_kbps(self, client, folder_mocks):
+        folder_mocks["walk"].return_value = [("/data/media_test", [], ["clip.mkv"])]
+        self._post(client)
+        _, meta = folder_mocks["enqueue"].call_args.args
+        assert meta["bitrate_kbps"] == 8000  # 8_000_000 bps → 8000 kbps
+
+    def test_duplicate_counted_in_skipped(self, client, folder_mocks):
+        folder_mocks["walk"].return_value = [("/data/media_test", [], ["clip.mkv"])]
+        folder_mocks["enqueue"].return_value = None
+        data = self._post(client).get_json()
+        assert data["skipped"] == ["/data/media_test/clip.mkv"]
+        assert data["enqueued"] == []
+
+    def test_probe_error_counted_in_errors(self, client, folder_mocks):
+        folder_mocks["walk"].return_value = [("/data/media_test", [], ["clip.mkv"])]
+        folder_mocks["probe"].side_effect = Exception("ffprobe failed")
+        data = self._post(client).get_json()
+        assert len(data["errors"]) == 1
+        assert data["errors"][0]["path"] == "/data/media_test/clip.mkv"
+        assert data["enqueued"] == []
+
+    def test_dry_run_set_in_meta(self, client, folder_mocks):
+        folder_mocks["walk"].return_value = [("/data/media_test", [], ["clip.mkv"])]
+        self._post(client, query="?dry_run=true")
+        _, meta = folder_mocks["enqueue"].call_args.args
+        assert meta["dry_run"] is True
+
+    def test_multiple_files_all_enqueued(self, client, folder_mocks):
+        folder_mocks["walk"].return_value = [
+            ("/data/media_test", [], ["a.mkv", "b.mkv", "c.mp4"])
+        ]
+        folder_mocks["enqueue"].side_effect = [1, 2, 3]
+        data = self._post(client).get_json()
+        assert len(data["enqueued"]) == 3

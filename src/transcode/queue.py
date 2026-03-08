@@ -40,6 +40,10 @@ def requeue_job(job_id: int, dry_run: bool = False) -> bool:
     return _q.requeue_job(job_id, dry_run)
 
 
+def clear_jobs(status: str) -> int:
+    return _q.clear_jobs(status)
+
+
 def cleanup_jobs():
     done_days = int(config.get("transcode", "cleanup_done_days", fallback="7"))
     failed_days = int(config.get("transcode", "cleanup_failed_days", fallback="21"))

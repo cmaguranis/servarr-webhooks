@@ -5,7 +5,8 @@ import random
 
 from flask import Blueprint, request
 
-from src.test_media.queue import enqueue_job, list_jobs
+from src.media_extensions import MEDIA_EXTENSIONS
+from src.test_media.queue import clear_jobs, enqueue_job, list_jobs
 from src.test_media.slice import build_output_path, get_duration, get_media_signature
 
 logger = logging.getLogger(__name__)
@@ -15,7 +16,6 @@ bp = Blueprint("test_media", __name__)
 MEDIA_TEST_CACHE_DIR  = os.getenv("MEDIA_TEST_CACHE_DIR",  "/data/media_cache")
 MEDIA_TEST_OUTPUT_DIR = os.getenv("MEDIA_TEST_OUTPUT_DIR", "/data/media_test")
 MEDIA_DIR             = os.getenv("MEDIA_DIR",             "/media")
-MEDIA_EXTENSIONS = {".mkv", ".mp4", ".m4v", ".avi", ".mov", ".ts"}
 SLICE_DURATION    = 30  # seconds
 MIN_FILE_DURATION = SLICE_DURATION + 5  # 35s safety buffer
 
@@ -51,7 +51,7 @@ def generate():
     if not all_files:
         for d in scan_dirs:
             logger.info(f"No media files found in {d}")
-        return ({"dry_run": dry_run, "enqueued": [], "skipped": 0}, 202)
+        return ({"dry_run": dry_run, "enqueued": [], "skipped": []}, 202)
 
     logger.info(f"Found {len(all_files)} media files across {scan_dirs}")
 
@@ -76,7 +76,7 @@ def generate():
     )
 
     enqueued = []
-    skipped  = 0
+    skipped: list[str] = []
 
     for sig, path in selected:
         try:
@@ -113,7 +113,7 @@ def generate():
         else:
             job_id = enqueue_job(output_path, meta)
             if job_id is None:
-                skipped += 1
+                skipped.append(output_path)
             else:
                 enqueued.append({
                     "job_id":    job_id,
@@ -124,10 +124,20 @@ def generate():
                 })
 
     logger.info(
-        f"generate complete: {len(enqueued)} enqueued, {skipped} skipped"
+        f"generate complete: {len(enqueued)} enqueued, {len(skipped)} skipped"
         + (" (dry_run)" if dry_run else "")
     )
     return ({"dry_run": dry_run, "enqueued": enqueued, "skipped": skipped}, 202)
+
+
+@bp.route("/media-test/jobs", methods=["DELETE"])
+def delete_jobs():
+    status = request.args.get("status")
+    if not status:
+        return ({"error": "Missing required query param: status"}, 400)
+    deleted = clear_jobs(status)
+    logger.info(f"Cleared {deleted} media-test jobs with status={status}")
+    return ({"deleted": deleted}, 200)
 
 
 @bp.route("/media-test/jobs", methods=["GET"])
