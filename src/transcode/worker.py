@@ -7,6 +7,7 @@ from src.test_media.slice import build_output_path
 from src.transcode.queue import _q, cleanup_jobs
 from src.transcode.encode import transcode_file
 from src.transcode.probe import get_stream_info
+from src.transcode import schedule
 from src.worker_base import Worker
 
 MEDIA_TEST_OUTPUT_DIR = os.getenv("MEDIA_TEST_OUTPUT_DIR", "/data/media_test")
@@ -72,6 +73,7 @@ _worker = Worker(
     on_complete=_post_transcode,
     cleanup_fn=cleanup_jobs,
     worker_count=TRANSCODE_WORKERS,
+    paused_fn=lambda: not schedule.is_enabled(),
 )
 
 

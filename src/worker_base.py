@@ -22,6 +22,7 @@ class Worker:
         on_complete: Callable | None = None,
         cleanup_fn: Callable | None = None,
         worker_count: int = 1,
+        paused_fn: Callable | None = None,
     ):
         """
         name:        Thread name for logging
@@ -30,6 +31,7 @@ class Worker:
         on_complete: optional callable(job_id, meta) — called after non-dry-run success
         cleanup_fn:  optional callable() — called daily for job cleanup; defaults to queue.cleanup_jobs()
         worker_count: Number of concurrent worker threads
+        paused_fn:   optional callable() -> bool — when True, skip claiming new jobs
         """
         self._name = name
         self._queue = queue
@@ -37,6 +39,7 @@ class Worker:
         self._on_complete = on_complete
         self._cleanup_fn = cleanup_fn or queue.cleanup_jobs
         self._worker_count = worker_count
+        self._paused_fn = paused_fn
         self._stop_flag = threading.Event()
         self._executor: ThreadPoolExecutor | None = None
 
@@ -68,6 +71,10 @@ class Worker:
         last_cleanup = 0.0
         while not self._stop_flag.is_set():
             try:
+                if self._paused_fn and self._paused_fn():
+                    self._stop_flag.wait(timeout=POLL_INTERVAL)
+                    continue
+
                 jobs = self._queue.claim_pending_jobs(limit=self._worker_count)
                 if jobs:
                     futures = [self._executor.submit(self._run, job) for job in jobs]

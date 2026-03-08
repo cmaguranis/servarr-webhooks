@@ -9,6 +9,7 @@ from src.media_extensions import MEDIA_EXTENSIONS
 from src.test_media.queue import get_job_by_path as get_media_test_job
 from src.transcode.queue import clear_jobs, enqueue_job, list_jobs, requeue_job
 from src.transcode.probe import get_stream_info
+from src.transcode import schedule
 
 logger = logging.getLogger(__name__)
 
@@ -38,22 +39,24 @@ def transcode_webhook():
         logger.info(f"Skipping trusted group '{release_group}': {file_info.get('path')}")
         return ("", 200)
 
-    # Skip if already tagged as transcoded
-    svc = radarr_service if is_radarr else sonarr_service
-    try:
-        transcoded_tag_id = svc.get_or_create_tag("transcoded")
-        if transcoded_tag_id in (media_obj.get("tags") or []):
-            logger.info(f"Skipping already-transcoded: {file_info.get('path')}")
-            return ("", 200)
-    except Exception as e:
-        logger.warning(f"Could not check 'transcoded' tag — proceeding anyway: {e}")
+    media_test = request.args.get("media_test", "").lower() == "true"
+
+    # Skip if already tagged as transcoded (bypass in media_test mode)
+    if not media_test:
+        svc = radarr_service if is_radarr else sonarr_service
+        try:
+            transcoded_tag_id = svc.get_or_create_tag("transcoded")
+            if transcoded_tag_id in (media_obj.get("tags") or []):
+                logger.info(f"Skipping already-transcoded: {file_info.get('path')}")
+                return ("", 200)
+        except Exception as e:
+            logger.warning(f"Could not check 'transcoded' tag — proceeding anyway: {e}")
 
     orig_lang = _parse_lang(
         (media_obj.get("originalLanguage") or {}).get("name")
         or media_info.get("audioLanguages", "")
     )
 
-    media_test = request.args.get("media_test", "").lower() == "true"
     start_sec_raw = request.args.get("start_sec")
     slice_duration_raw = request.args.get("slice_duration")
     meta = {
@@ -94,6 +97,20 @@ def delete_jobs():
     deleted = clear_jobs(status)
     logger.info(f"Cleared {deleted} transcode jobs with status={status}")
     return ({"deleted": deleted}, 200)
+
+
+@bp.route("/transcode/schedule", methods=["GET"])
+def get_schedule():
+    return ({"enabled": schedule.is_enabled()}, 200)
+
+
+@bp.route("/transcode/schedule", methods=["POST"])
+def set_schedule():
+    enabled = request.args.get("enabled", "").lower()
+    if enabled not in ("true", "false"):
+        return ({"error": "Missing or invalid query param: enabled (true|false)"}, 400)
+    schedule.set_enabled(enabled == "true")
+    return ({"enabled": schedule.is_enabled()}, 200)
 
 
 @bp.route("/transcode/jobs/<int:job_id>/retry", methods=["POST"])

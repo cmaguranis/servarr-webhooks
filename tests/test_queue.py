@@ -80,6 +80,14 @@ class TestEnqueueJob:
         assert meta["codec"] == "hevc"
         assert meta["channels"] == 6
 
+    def test_default_priority_is_1(self, q):
+        q.enqueue_job("/a.mkv", {})
+        assert q.list_jobs()[0]["priority"] == 1
+
+    def test_custom_priority_stored(self, q):
+        q.enqueue_job("/a.mkv", {}, priority=2)
+        assert q.list_jobs()[0]["priority"] == 2
+
 
 # ---------------------------------------------------------------------------
 # claim_pending_jobs
@@ -108,6 +116,18 @@ class TestClaimPendingJobs:
 
     def test_returns_empty_when_none_pending(self, q):
         assert q.claim_pending_jobs(limit=10) == []
+
+    def test_higher_priority_claimed_first(self, q):
+        q.enqueue_job("/low.mkv", {}, priority=1)
+        q.enqueue_job("/high.mkv", {}, priority=2)
+        claimed = q.claim_pending_jobs(limit=1)
+        assert claimed[0]["path"] == "/high.mkv"
+
+    def test_equal_priority_uses_fifo(self, q):
+        q.enqueue_job("/first.mkv", {}, priority=1)
+        q.enqueue_job("/second.mkv", {}, priority=1)
+        claimed = q.claim_pending_jobs(limit=1)
+        assert claimed[0]["path"] == "/first.mkv"
 
 
 # ---------------------------------------------------------------------------
