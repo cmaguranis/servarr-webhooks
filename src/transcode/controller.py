@@ -53,6 +53,8 @@ def transcode_webhook():
         or media_info.get("audioLanguages", "")
     )
 
+    media_test = request.args.get("media_test", "").lower() == "true"
+    start_sec_raw = request.args.get("start_sec")
     meta = {
         "codec": media_info.get("videoCodec"),
         "bitrate_kbps": media_info.get("videoBitrate"),
@@ -61,6 +63,8 @@ def transcode_webhook():
         "arr_type": arr_type,
         "arr_id": media_obj.get("id"),
         "dry_run": request.args.get("dry_run", "").lower() == "true",
+        "media_test": media_test,
+        "start_sec": int(start_sec_raw) if start_sec_raw else None,
     }
 
     enqueue_job(file_info["path"], meta)

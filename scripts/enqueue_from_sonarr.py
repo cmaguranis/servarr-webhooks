@@ -102,6 +102,8 @@ def main():
                         help="Episode file ID to enqueue (omit to list available files)")
     parser.add_argument("--dry-run", action="store_true", help="Pass ?dry_run=true to the webhook")
     parser.add_argument("--retry", action="store_true", help="Retry the existing job for this episode instead of enqueuing a new one")
+    parser.add_argument("--media-test", action="store_true", help="Slice and transcode to /data/media_test instead of in-place")
+    parser.add_argument("--start-sec", type=int, help="Exact slice start point in seconds (random if omitted)")
     parser.add_argument("--sonarr-url", required=True, help="Sonarr base URL, e.g. http://sonarr:8989")
     parser.add_argument("--sonarr-key", required=True, help="Sonarr API key")
     parser.add_argument("--webhook-url", default="http://localhost:5001",
@@ -168,8 +170,15 @@ def main():
         else:
             payload = build_payload(series, episode_file)
             url = f"{webhook_base}/transcode-webhook"
+            qs = []
             if args.dry_run:
-                url += "?dry_run=true"
+                qs.append("dry_run=true")
+            if args.media_test:
+                qs.append("media_test=true")
+                if args.start_sec is not None:
+                    qs.append(f"start_sec={args.start_sec}")
+            if qs:
+                url += "?" + "&".join(qs)
             print(f"\nPOST {url}")
             print(f"Payload:\n{json.dumps(payload, indent=2)}\n")
             res = requests.post(url, json=payload, timeout=30)

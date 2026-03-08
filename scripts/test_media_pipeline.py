@@ -22,8 +22,40 @@ Usage:
 import argparse
 import json
 import sys
+import time
 
 import requests
+
+
+def get(url):
+    try:
+        res = requests.get(url, timeout=30)
+    except requests.ConnectionError:
+        print(f"Error: could not connect to {url}")
+        sys.exit(1)
+    res.raise_for_status()
+    return res.json()
+
+
+def wait_for_jobs(base, job_ids, poll_interval=3):
+    """Poll /media-test/jobs until all job_ids have reached a terminal state."""
+    pending = set(job_ids)
+    print(f"\nWaiting for {len(pending)} clip generation job(s) to complete...")
+    while pending:
+        data = get(f"{base}/media-test/jobs")
+        jobs = {j["id"]: j for j in data.get("jobs", [])}
+        newly_done = set()
+        for jid in pending:
+            job = jobs.get(jid)
+            if job and job.get("status") in ("done", "failed"):
+                status = job["status"]
+                path = job.get("path", "")
+                print(f"  [{status}] job {jid}: {path}")
+                newly_done.add(jid)
+        pending -= newly_done
+        if pending:
+            time.sleep(poll_interval)
+    print("All clip generation jobs finished.")
 
 
 def post(url, *, body=None, label):
@@ -92,6 +124,11 @@ def main():
         if not enqueued and not args.dry_run:
             print("\nNothing enqueued — no clips to transcode. Exiting.")
             sys.exit(0)
+
+        if not args.dry_run and not args.generate_only:
+            job_ids = [item["job_id"] for item in enqueued if item.get("job_id") is not None]
+            if job_ids:
+                wait_for_jobs(base, job_ids)
 
     # ------------------------------------------------------------------
     # Step 2: Enqueue transcode jobs for the clips folder

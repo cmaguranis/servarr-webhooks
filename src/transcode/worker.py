@@ -1,10 +1,16 @@
 import os
+import random
 import logging
 
 from src import radarr_service, sonarr_service
+from src.test_media.slice import build_output_path
 from src.transcode.queue import _q, cleanup_jobs
 from src.transcode.encode import transcode_file
+from src.transcode.probe import get_stream_info
 from src.worker_base import Worker
+
+MEDIA_TEST_OUTPUT_DIR = os.getenv("MEDIA_TEST_OUTPUT_DIR", "/data/media_test")
+_SLICE_DURATION = 30
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +18,20 @@ TRANSCODE_WORKERS = int(os.getenv("TRANSCODE_WORKERS", "1"))
 
 
 def _execute(path: str, meta: dict, job_id: int, dry_run: bool):
+    output_path = None
+    start_sec = None
+
+    if meta.get("media_test"):
+        info = get_stream_info(path)
+        duration = float(info.get("format", {}).get("duration") or 0)
+        start_sec = meta.get("start_sec")
+        if start_sec is None:
+            max_start = int(duration) - _SLICE_DURATION - 1
+            start_sec = random.randint(0, max(0, max_start))
+        output_path = build_output_path(path, start_sec, MEDIA_TEST_OUTPUT_DIR)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        logger.info(f"[job {job_id}] media_test mode: slicing from {start_sec}s → {output_path}")
+
     transcode_file(
         path,
         codec=meta.get("codec"),
@@ -20,6 +40,8 @@ def _execute(path: str, meta: dict, job_id: int, dry_run: bool):
         has_51=meta.get("has_51"),
         dry_run=dry_run,
         job_id=job_id,
+        output_path=output_path,
+        start_sec=start_sec,
     )
 
 

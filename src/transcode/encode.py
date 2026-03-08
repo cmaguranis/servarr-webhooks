@@ -67,6 +67,8 @@ def transcode_file(
     has_51: bool | None = None,
     dry_run: bool = False,
     job_id: int | None = None,
+    output_path: str | None = None,
+    start_sec: int | None = None,
 ):
     prefix = f"[job {job_id}] " if job_id is not None else ""
 
@@ -143,17 +145,20 @@ def transcode_file(
 
         # Build ffmpeg command — use QSV hw decode when available to keep
         # frames on GPU and avoid CPU↔GPU copy before hevc_qsv encoding.
+        slice_args = ["-ss", str(start_sec), "-t", "30"] if start_sec is not None else []
+
         qsv_decoder = _QSV_DECODER.get(codec_norm) if needs_video else None
         if qsv_decoder:
             cmd = [
                 "ffmpeg", "-y",
                 "-hwaccel", "qsv", "-hwaccel_output_format", "qsv",
                 "-c:v", qsv_decoder,
+                *slice_args,
                 "-i", path, "-map", "0:v",
             ]
             logger.info(f"{prefix}Using QSV hw decode: {qsv_decoder}")
         else:
-            cmd = ["ffmpeg", "-y", "-i", path, "-map", "0:v"]
+            cmd = ["ffmpeg", "-y", *slice_args, "-i", path, "-map", "0:v"]
 
         if needs_video:
             # ICQ (Intelligent Constant Quality) — better quality/size than fixed
@@ -175,7 +180,7 @@ def transcode_file(
             cmd += [
                 "-map", f"0:{audio_abs_idx}",
                 "-map", f"0:{audio_abs_idx}",
-                "-c:a:0", "aac", "-b:a:0", "192k",
+                "-c:a:0", "aac", "-b:a:0", "192k", "-ac:a:0", "2",
                 "-c:a:1", "ac3", "-b:a:1", "640k",
                 "-disposition:a:0", "default", "-disposition:a:1", "0",
                 "-metadata:s:a:0", "title=AAC Stereo",
@@ -223,11 +228,12 @@ def transcode_file(
                 result = subprocess.run(cmd + [tmp], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
             if result.returncode != 0:
                 raise RuntimeError(f"ffmpeg exited {result.returncode}: {result.stderr[-500:]}")
+            dest = output_path or path
             try:
-                os.replace(tmp, path)  # atomic if same filesystem
+                os.replace(tmp, dest)  # atomic if same filesystem
             except OSError:
-                shutil.copy2(tmp, path)  # cross-device fallback; finally block cleans tmp
-            logger.info(f"{prefix}Transcode complete: '{path}'")
+                shutil.copy2(tmp, dest)  # cross-device fallback; finally block cleans tmp
+            logger.info(f"{prefix}Transcode complete: '{dest}'")
         finally:
             if os.path.exists(tmp):
                 os.remove(tmp)

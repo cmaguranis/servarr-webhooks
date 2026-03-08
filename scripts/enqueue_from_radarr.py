@@ -84,6 +84,8 @@ def main():
     parser.add_argument("--search", help="Search by title (must match exactly one movie)")
     parser.add_argument("--dry-run", action="store_true", help="Pass ?dry_run=true to the webhook")
     parser.add_argument("--retry", action="store_true", help="Retry the existing job for this movie instead of enqueuing a new one")
+    parser.add_argument("--media-test", action="store_true", help="Slice and transcode to /data/media_test instead of in-place")
+    parser.add_argument("--start-sec", type=int, help="Exact slice start point in seconds (random if omitted)")
     parser.add_argument("--radarr-url", required=True, help="Radarr base URL, e.g. http://radarr:7878")
     parser.add_argument("--radarr-key", required=True, help="Radarr API key")
     parser.add_argument("--webhook-url", default="http://localhost:5001",
@@ -125,8 +127,15 @@ def main():
         else:
             payload = build_payload(movie, movie_file)
             url = f"{webhook_base}/transcode-webhook"
+            qs = []
             if args.dry_run:
-                url += "?dry_run=true"
+                qs.append("dry_run=true")
+            if args.media_test:
+                qs.append("media_test=true")
+                if args.start_sec is not None:
+                    qs.append(f"start_sec={args.start_sec}")
+            if qs:
+                url += "?" + "&".join(qs)
             print(f"\nPOST {url}")
             print(f"Payload:\n{json.dumps(payload, indent=2)}\n")
             res = requests.post(url, json=payload, timeout=30)
