@@ -19,7 +19,6 @@ services:
       - ROOT_FOLDER_ANIME_MOVIES=/data/media_cache/anime_movies
       - TRANSCODE_WORKERS=2
       - TRANSCODE_TEMP_FALLBACK=/config/transcode-temp
-      - LOUDNESS_SAMPLE_SECONDS=600  # default, ~1 min analysis time
     volumes:
       - ${{ sf:"appdata" }}/servarr-webhooks:/config
       - ${{ sf:"media" }}:/media:shared

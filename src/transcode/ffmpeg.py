@@ -24,7 +24,7 @@ def get_stream_info(path: str) -> dict:
     return json.loads(res.stdout)
 
 
-LOUDNESS_SAMPLE_SECONDS = int(os.getenv("LOUDNESS_SAMPLE_SECONDS", "600"))
+LOUDNESS_SAMPLE_SECONDS = 300  # fixed 5-minute window
 
 # QSV hardware decoders for common input codecs (Gen 8+ iGPU).
 # Keeping frames on the GPU avoids a CPU↔GPU copy before hevc_qsv encoding.
@@ -51,18 +51,21 @@ _primary_reserved: int = 0
 def get_loudness_stats(
     path: str,
     orig_lang: str | None = None,
+    duration: float | None = None,
 ) -> dict | None:
     # Select the same stream the encoder will use:
     # prefer original language; if 5.1 present use that, else stereo fallback.
-    # Set LOUDNESS_SAMPLE_SECONDS=0 to analyze the full file.
     if orig_lang:
         audio_map = f"0:a:m:language:{orig_lang}"
     else:
         audio_map = "0:a:0"
 
-    cmd = ["ffmpeg", "-i", path]
-    if LOUDNESS_SAMPLE_SECONDS > 0:
-        cmd += ["-t", str(LOUDNESS_SAMPLE_SECONDS)]
+    # Skip the first 10% of the file (intro/credits), then sample up to 5 minutes.
+    cmd = ["ffmpeg"]
+    if duration and duration > 0:
+        skip = duration * 0.10
+        cmd += ["-ss", f"{skip:.1f}"]
+    cmd += ["-i", path, "-t", str(LOUDNESS_SAMPLE_SECONDS)]
     # -vn skips video demux entirely; downmix to stereo before loudnorm avoids EAC3 Atmos issues.
     cmd += ["-vn", "-map", audio_map, "-af", "aresample=48000,aformat=sample_fmts=fltp,loudnorm=print_format=json", "-ac", "2", "-f", "null", "-"]
     res = subprocess.run(cmd, capture_output=True, text=True)
@@ -180,8 +183,9 @@ def transcode_file(
         needs_video = not (codec_norm in HEVC_ALIASES and (bitrate_kbps or 0) <= 8000)
         logger.info(f"{prefix}Needs video transcode: {needs_video} (codec={codec}, bitrate={bitrate_kbps}kbps)")
 
-        logger.info(f"{prefix}Running loudness analysis (this may take several minutes)...")
-        stats = get_loudness_stats(path, orig_lang=orig_lang)
+        duration = float(fmt.get("duration") or 0)
+        logger.info(f"{prefix}Running loudness analysis (5 min window, skip first 10%)...")
+        stats = get_loudness_stats(path, orig_lang=orig_lang, duration=duration)
         needs_loudnorm, needs_dynaudnorm = _audio_needs(stats)
         needs_audio = needs_loudnorm or needs_dynaudnorm
         if stats:
