@@ -1,5 +1,6 @@
 import os
 import uuid
+import shlex
 import shutil
 import logging
 import threading
@@ -165,23 +166,33 @@ def transcode_file(
         else:
             cmd += ["-c:v", "copy"]
 
-        audio_filter = _build_audio_filter(stats, needs_loudnorm, needs_dynaudnorm)
+        is_mono = target_audio.get("channels", 2) == 1
+        stereo_filter = _build_audio_filter(stats, needs_loudnorm, needs_dynaudnorm, stereo=True)
+        surround_filter = _build_audio_filter(stats, needs_loudnorm, needs_dynaudnorm, stereo=False)
         if has_51:
             # Always dual tracks: AAC stereo (downmix from 5.1) + AC3 5.1.
-            # audio_filter always applied (EAC3 Atmos safe; no-op overhead for AC3/AAC).
+            # stereo_filter uses aformat channel_layouts=stereo to force proper Atmos downmix.
             cmd += [
                 "-map", f"0:{audio_abs_idx}",
                 "-map", f"0:{audio_abs_idx}",
-                "-c:a:0", "aac", "-ac:0", "2", "-b:a:0", "192k",
+                "-c:a:0", "aac", "-b:a:0", "192k",
                 "-c:a:1", "ac3", "-b:a:1", "640k",
                 "-disposition:a:0", "default", "-disposition:a:1", "0",
-                "-af:0", audio_filter, "-af:1", audio_filter,
+                "-metadata:s:a:0", "title=AAC Stereo",
+                "-metadata:s:a:1", "title=AC3 5.1",
+                "-af:0", stereo_filter, "-af:1", surround_filter,
+            ]
+        elif is_mono and needs_audio:
+            cmd += [
+                "-map", f"0:{audio_abs_idx}",
+                "-c:a", "aac", "-b:a", "192k",
+                "-af", surround_filter,
             ]
         elif needs_audio:
             cmd += [
                 "-map", f"0:{audio_abs_idx}",
-                "-c:a", "aac", "-ac", "2", "-b:a", "192k",
-                "-af", audio_filter,
+                "-c:a", "aac", "-b:a", "192k",
+                "-af", stereo_filter,
             ]
         else:
             cmd += [
@@ -195,13 +206,13 @@ def transcode_file(
             cmd += ["-c:s", "copy"]
 
         if dry_run:
-            logger.info(f"{prefix}[DRY RUN] ffmpeg command: {' '.join(cmd + ['<output.mkv>'])}")
+            logger.info(f"{prefix}[DRY RUN] ffmpeg command: {shlex.join(cmd + ['<output.mkv>'])}")
             return
 
         file_size = os.path.getsize(path)
         temp_dir = _pick_temp_dir(file_size)
         tmp = os.path.join(temp_dir, f"{uuid.uuid4().hex}.mkv")
-        logger.info(f"{prefix}ffmpeg command: {' '.join(cmd + [tmp])}")
+        logger.info(f"{prefix}ffmpeg command: {shlex.join(cmd + [tmp])}")
         logger.info(f"{prefix}Encoding to temp file in {temp_dir}...")
         try:
             if needs_video:

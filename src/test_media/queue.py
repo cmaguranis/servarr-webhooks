@@ -1,14 +1,10 @@
 import os
-import logging
 
-from src import config
 from src.queue import JobQueue
 
-logger = logging.getLogger(__name__)
-
 _q = JobQueue(
-    db_path=os.getenv("TRANSCODE_DB", "/config/data/transcode_queue.db"),
-    table="transcode_jobs",
+    db_path=os.getenv("MEDIA_TEST_DB", "/config/data/media_test_queue.db"),
+    table="media_test_jobs",
 )
 
 
@@ -41,6 +37,4 @@ def requeue_job(job_id: int, dry_run: bool = False) -> bool:
 
 
 def cleanup_jobs():
-    done_days = int(config.get("transcode", "cleanup_done_days", fallback="7"))
-    failed_days = int(config.get("transcode", "cleanup_failed_days", fallback="21"))
-    _q.cleanup_jobs(done_days, failed_days)
+    _q.cleanup_jobs()

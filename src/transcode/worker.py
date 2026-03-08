@@ -1,98 +1,53 @@
 import os
-import time
-import json
-import signal
 import logging
-import threading
-from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 
 from src import radarr_service, sonarr_service
-from src.transcode.queue import claim_pending_jobs, mark_done, mark_failed, cleanup_jobs, requeue_job
+from src.transcode.queue import _q, cleanup_jobs
 from src.transcode.encode import transcode_file
+from src.worker_base import Worker
 
 logger = logging.getLogger(__name__)
 
 TRANSCODE_WORKERS = int(os.getenv("TRANSCODE_WORKERS", "1"))
-POLL_INTERVAL = 10  # seconds
-
-_stop_flag = threading.Event()
-_executor: ThreadPoolExecutor | None = None
 
 
-def _run(job: dict):
-    meta = json.loads(job.get("meta") or "{}")
-    path = job["path"]
-    job_id = job["id"]
-    dry_run = meta.get("dry_run", False)
+def _execute(path: str, meta: dict, job_id: int, dry_run: bool):
+    transcode_file(
+        path,
+        codec=meta.get("codec"),
+        bitrate_kbps=meta.get("bitrate_kbps"),
+        orig_lang=meta.get("orig_lang"),
+        has_51=meta.get("has_51"),
+        dry_run=dry_run,
+        job_id=job_id,
+    )
 
-    logger.info(f"[job {job_id}] Starting: {path} (dry_run={dry_run})")
+
+def _post_transcode(job_id: int, meta: dict):
+    arr_id = meta.get("arr_id")
+    arr_type = meta.get("arr_type")
+    if not (arr_type and arr_id):
+        return
     try:
-        transcode_file(
-            path,
-            codec=meta.get("codec"),
-            bitrate_kbps=meta.get("bitrate_kbps"),
-            orig_lang=meta.get("orig_lang"),
-            has_51=meta.get("has_51"),
-            dry_run=dry_run,
-            job_id=job_id,
-        )
-
-        if dry_run:
-            requeue_job(job_id, dry_run=False)
-            logger.info(f"[job {job_id}] Dry run complete, requeued for real transcode: {path}")
+        svc = radarr_service if arr_type == "radarr" else sonarr_service
+        svc.add_tag(arr_id, "transcoded")
+        if arr_type == "radarr":
+            radarr_service.rescan_movie(arr_id)
         else:
-            mark_done(job_id)
-            logger.info(f"[job {job_id}] Done: {path}")
-
-        arr_id = meta.get("arr_id")
-        arr_type = meta.get("arr_type")
-        if arr_type and arr_id and not dry_run:
-            try:
-                svc = radarr_service if arr_type == "radarr" else sonarr_service
-                svc.add_tag(arr_id, "transcoded")
-                if arr_type == "radarr":
-                    radarr_service.rescan_movie(arr_id)
-                else:
-                    sonarr_service.rescan_series(arr_id)
-            except Exception as e:
-                logger.warning(f"Job {job_id} done but post-transcode Arr update failed: {e}")
-
+            sonarr_service.rescan_series(arr_id)
     except Exception as e:
-        mark_failed(job_id)
-        logger.error(f"Job {job_id} failed: {path} — {e}")
+        logger.warning(f"[job {job_id}] Post-transcode Arr update failed: {e}")
 
 
-def _loop():
-    last_cleanup = 0.0
-    while not _stop_flag.is_set():
-        try:
-            jobs = claim_pending_jobs(limit=TRANSCODE_WORKERS)
-            if jobs:
-                futures = [_executor.submit(_run, job) for job in jobs]
-                wait(futures, return_when=ALL_COMPLETED)
-
-            if time.time() - last_cleanup > 86400:
-                cleanup_jobs()
-                last_cleanup = time.time()
-        except Exception as e:
-            logger.error(f"Worker loop error: {e}", exc_info=True)
-
-        _stop_flag.wait(timeout=POLL_INTERVAL)
+_worker = Worker(
+    name="transcode-worker",
+    queue=_q,
+    execute_fn=_execute,
+    on_complete=_post_transcode,
+    cleanup_fn=cleanup_jobs,
+    worker_count=TRANSCODE_WORKERS,
+)
 
 
 def start():
-    global _executor
-    _executor = ThreadPoolExecutor(max_workers=TRANSCODE_WORKERS)
-
-    def _sigterm_handler(signum, frame):
-        logger.info("SIGTERM received — draining worker...")
-        _stop_flag.set()
-        if _executor:
-            _executor.shutdown(wait=True, cancel_futures=False)
-        logger.info("Worker drained")
-
-    signal.signal(signal.SIGTERM, _sigterm_handler)
-
-    t = threading.Thread(target=_loop, daemon=True, name="transcode-worker")
-    t.start()
-    logger.info(f"Transcode worker started ({TRANSCODE_WORKERS} slots)")
+    _worker.start()

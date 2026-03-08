@@ -22,14 +22,18 @@ from src.seerr.controller import bp as seerr_bp
 from src.promote.controller import bp as promote_bp
 from src.transcode.controller import bp as transcode_bp
 from src.import_scan.controller import bp as import_scan_bp
+from src.test_media.controller import bp as test_media_bp
 from src.transcode.queue import init_db
 from src.transcode import worker
+from src.test_media.queue import init_db as init_media_test_db
+from src.test_media import worker as media_test_worker
 
 app = Flask(__name__)
 app.register_blueprint(seerr_bp)
 app.register_blueprint(promote_bp)
 app.register_blueprint(transcode_bp)
 app.register_blueprint(import_scan_bp)
+app.register_blueprint(test_media_bp)
 
 _access_log = logging.getLogger("access")
 
@@ -45,6 +49,8 @@ def _log_request(response):
 
 init_db()
 worker.start()
+init_media_test_db()
+media_test_worker.start()
 
 if __name__ == "__main__":
     serve(app, host="0.0.0.0", port=5001)

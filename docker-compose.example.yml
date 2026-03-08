@@ -19,6 +19,9 @@ services:
       - ROOT_FOLDER_ANIME_MOVIES=/data/media_cache/anime_movies
       - TRANSCODE_WORKERS=2
       - TRANSCODE_TEMP_FALLBACK=/config/transcode-temp
+      - MEDIA_TEST_WORKERS=1
+      - MEDIA_TEST_OUTPUT_DIR=/data/media_test
+      - MEDIA_DIR=/media
     volumes:
       - ${{ sf:"appdata" }}/servarr-webhooks:/config
       - ${{ sf:"media" }}:/media:shared

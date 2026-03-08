@@ -7,17 +7,20 @@ logger = logging.getLogger(__name__)
 LOUDNESS_SAMPLE_SECONDS = 300  # fixed 5-minute window
 
 _AUDIO_FILTER_PREFIX = "aresample=48000,aformat=sample_fmts=fltp"
+_AUDIO_FILTER_PREFIX_STEREO = "aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo"
 
 
 def _run_loudnorm(path: str, audio_map: str, duration: float | None) -> dict | None:
     cmd = ["ffmpeg"]
+    sample_seconds = LOUDNESS_SAMPLE_SECONDS
     if duration and duration > 0:
         skip = duration * 0.10
+        sample_seconds = min(LOUDNESS_SAMPLE_SECONDS, duration - skip)
         cmd += ["-ss", f"{skip:.1f}"]
-    cmd += ["-i", path, "-t", str(LOUDNESS_SAMPLE_SECONDS)]
+    cmd += ["-i", path, "-t", f"{sample_seconds:.1f}"]
     # channel_layouts=stereo forces downmix before loudnorm — avoids EAC3 Atmos object-audio issues.
     cmd += ["-vn", "-map", audio_map, "-af",
-            "aresample=48000,aformat=sample_fmts=fltp,loudnorm=print_format=json",
+            "aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,loudnorm=print_format=json",
             "-f", "null", "-"]
     logger.info(f"loudnorm command: {' '.join(cmd)}")
     res = subprocess.run(cmd, capture_output=True, text=True)
@@ -59,8 +62,8 @@ def _audio_needs(stats: dict | None) -> tuple[bool, bool]:
     return needs_loudnorm, needs_dynaudnorm
 
 
-def _build_audio_filter(stats: dict | None, needs_loudnorm: bool, needs_dynaudnorm: bool) -> str:
-    parts = [_AUDIO_FILTER_PREFIX]
+def _build_audio_filter(stats: dict | None, needs_loudnorm: bool, needs_dynaudnorm: bool, stereo: bool = False) -> str:
+    parts = [_AUDIO_FILTER_PREFIX_STEREO if stereo else _AUDIO_FILTER_PREFIX]
     if needs_loudnorm and stats:
         parts.append(
             f"loudnorm=I=-16:LRA=7:TP=-1.5"

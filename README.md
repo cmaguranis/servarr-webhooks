@@ -192,6 +192,83 @@ Radarr issues `DownloadedMoviesScan`; Sonarr issues `DownloadedEpisodesScan`. Bo
 
 ---
 
+## Test Media Generation
+
+Generates short test clips from real media files to exercise ffmpeg encoding paths without processing entire files.
+
+Scans `/data/media_cache` (and optionally `/media`) for media files, selects one file per unique codec/audio signature to maximize encoding-path coverage, then slices a random 30-second segment from each. Slicing uses stream copy (no re-encode), so jobs complete in seconds.
+
+### Environment variables
+
+| Variable | Description |
+|---|---|
+| `MEDIA_TEST_WORKERS` | Parallel slice jobs (default: `1`) |
+| `MEDIA_TEST_OUTPUT_DIR` | Where test clips are written (default: `/data/media_test`) |
+| `MEDIA_TEST_CACHE_DIR` | Source directory to scan (default: `/data/media_cache`) |
+| `MEDIA_DIR` | Main media directory, used when `include_media=true` (default: `/media`) |
+
+### API
+
+**Scan and enqueue:**
+```bash
+# Scan media_cache, enqueue one slice job per unique codec signature
+curl -X POST http://localhost:5001/media-test/generate
+
+# Also scan /media
+curl -X POST "http://localhost:5001/media-test/generate?include_media=true"
+
+# Dry-run: logs what would be sliced without creating any jobs or files
+curl -X POST "http://localhost:5001/media-test/generate?dry_run=true"
+```
+
+Response:
+```json
+{
+  "dry_run": false,
+  "enqueued": [
+    {
+      "job_id": 7,
+      "source": "/data/media_cache/Movies/Interstellar/Interstellar.mkv",
+      "output": "/data/media_test/Interstellar__Interstellar_3724s.mkv",
+      "start_sec": 3724,
+      "signature": ["hevc", "eac3", 8]
+    }
+  ],
+  "skipped": 0
+}
+```
+
+`skipped` counts files where a job for that output path already exists in the queue (idempotent — safe to call repeatedly).
+
+**List jobs:**
+```bash
+curl http://localhost:5001/media-test/jobs
+curl "http://localhost:5001/media-test/jobs?status=done"
+```
+
+---
+
+## Running Tests
+
+Requires [uv](https://github.com/astral-sh/uv):
+
+```bash
+uv run pytest tests/
+```
+
+Run with verbose output:
+```bash
+uv run pytest tests/ -v
+```
+
+Run a specific test file or class:
+```bash
+uv run pytest tests/test_queue.py -v
+uv run pytest tests/test_media/test_controller.py::TestSignatureDedup -v
+```
+
+---
+
 ## Manual Testing
 
 ### Synthetic payloads
