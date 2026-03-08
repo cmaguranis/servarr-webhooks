@@ -4,29 +4,15 @@ import os
 from flask import Blueprint, request
 
 from src import config, radarr_service, sonarr_service
+from src.lang import parse_lang as _parse_lang
 from src.media_extensions import MEDIA_EXTENSIONS
+from src.test_media.queue import get_job_by_path as get_media_test_job
 from src.transcode.queue import clear_jobs, enqueue_job, list_jobs, requeue_job
 from src.transcode.probe import get_stream_info
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint("transcode", __name__)
-
-_LANG_MAP = {
-    "english": "eng",
-    "japanese": "jpn",
-    "french": "fra",
-    "spanish": "spa",
-    "german": "deu",
-    "korean": "kor",
-    "chinese": "zho",
-    "portuguese": "por",
-    "italian": "ita",
-}
-
-
-def _parse_lang(name: str) -> str | None:
-    return _LANG_MAP.get((name or "").lower().strip()) if name else None
 
 
 @bp.route("/transcode-webhook", methods=["POST"])
@@ -130,6 +116,20 @@ def enqueue_folder():
     if not os.path.isdir(folder):
         return ({"error": f"Directory does not exist: {folder}"}, 400)
 
+    # Build path → orig_lang map from Arr APIs as fallback for non-clip files
+    arr_lang_map: dict[str, str] = {}
+    try:
+        arr_lang_map.update(radarr_service.get_path_lang_map())
+        logger.info(f"enqueue-folder: loaded {len(arr_lang_map)} Radarr path→lang entries")
+    except Exception as e:
+        logger.warning(f"enqueue-folder: Radarr lang lookup unavailable — {e}")
+    try:
+        sonarr_map = sonarr_service.get_path_lang_map()
+        arr_lang_map.update(sonarr_map)
+        logger.info(f"enqueue-folder: loaded {len(sonarr_map)} Sonarr path→lang entries")
+    except Exception as e:
+        logger.warning(f"enqueue-folder: Sonarr lang lookup unavailable — {e}")
+
     enqueued = []
     skipped  = []
     errors   = []
@@ -143,16 +143,28 @@ def enqueue_folder():
                 info    = get_stream_info(path)
                 streams = info.get("streams") or []
                 video   = next((s for s in streams if s.get("codec_type") == "video"), {})
-                audio   = next((s for s in streams if s.get("codec_type") == "audio"), {})
+                a_streams = [s for s in streams if s.get("codec_type") == "audio"]
 
-                # Prefer audio language tag if present
-                audio_lang = (audio.get("tags") or {}).get("language")
+                # Priority 1: metadata stored at slice time in the media_test queue
+                # Priority 2: Arr API path→lang map (for actual library files)
+                # Priority 3: eng preference heuristic, then first audio track
+                media_test_job = get_media_test_job(path)
+                if media_test_job:
+                    clip_meta  = json.loads(media_test_job.get("meta") or "{}")
+                    audio_lang = clip_meta.get("orig_lang")
+                    logger.info(f"enqueue-folder: using stored orig_lang={audio_lang!r} for {path}")
+                elif arr_lang_map.get(path):
+                    audio_lang = _parse_lang(arr_lang_map[path])
+                else:
+                    eng_stream = next((s for s in a_streams if (s.get("tags") or {}).get("language") == "eng"), None)
+                    audio      = eng_stream or (a_streams[0] if a_streams else {})
+                    audio_lang = (audio.get("tags") or {}).get("language")
 
                 meta = {
                     "codec":        video.get("codec_name"),
                     "bitrate_kbps": int(float(info.get("format", {}).get("bit_rate", 0))) // 1000 or None,
                     "orig_lang":    audio_lang,
-                    "has_51":       (audio.get("channels") or 0) > 5,
+                    "has_51":       any((s.get("channels") or 0) > 5 for s in a_streams if (s.get("tags") or {}).get("language") == audio_lang),
                     "arr_type":     None,
                     "arr_id":       None,
                     "dry_run":      dry_run,

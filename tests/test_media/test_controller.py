@@ -53,6 +53,12 @@ def mocks():
             "clear_jobs": stack.enter_context(
                 patch("src.test_media.controller.clear_jobs", return_value=0)
             ),
+            "radarr_map": stack.enter_context(
+                patch("src.test_media.controller.radarr_service.get_path_movie_map", return_value={})
+            ),
+            "sonarr_map": stack.enter_context(
+                patch("src.test_media.controller.sonarr_service.get_path_episode_map", return_value={})
+            ),
             "randint": stack.enter_context(
                 patch("src.test_media.controller.random.randint", return_value=50)
             ),
@@ -232,6 +238,68 @@ class TestEnqueue:
         assert meta["start_sec"] == 100
         assert meta["duration_sec"] == ctrl.SLICE_DURATION
         assert meta["dry_run"] is False
+
+    def test_arr_orig_lang_stored_in_meta_from_radarr(self, client, mocks):
+        src_path = "/data/media_cache/Movies/film.mkv"
+        mocks["walk"].return_value = [("/data/media_cache/Movies", [], ["film.mkv"])]
+        mocks["get_signature"].return_value = ("hevc", "eac3", 8)
+        mocks["radarr_map"].return_value = {
+            src_path: {"id": 42, "originalLanguage": {"name": "Japanese"}}
+        }
+
+        client.post("/media-test/generate")
+        _, meta = mocks["enqueue"].call_args.args
+        assert meta["orig_lang"] == "jpn"
+        assert meta["arr_type"] == "radarr"
+        assert meta["arr_id"] == 42
+
+    def test_arr_orig_lang_stored_in_meta_from_sonarr(self, client, mocks):
+        src_path = "/data/media_cache/TV/show.mkv"
+        mocks["walk"].return_value = [("/data/media_cache/TV", [], ["show.mkv"])]
+        mocks["get_signature"].return_value = ("h264", "aac", 2)
+        mocks["sonarr_map"].return_value = {
+            src_path: {
+                "series": {"id": 7, "originalLanguage": {"name": "Korean"}},
+                "episode_file": {"path": src_path},
+            }
+        }
+
+        client.post("/media-test/generate")
+        _, meta = mocks["enqueue"].call_args.args
+        assert meta["orig_lang"] == "kor"
+        assert meta["arr_type"] == "sonarr"
+        assert meta["arr_id"] == 7
+
+    def test_arr_data_stored_in_meta(self, client, mocks):
+        src_path = "/data/media_cache/Movies/film.mkv"
+        movie = {"id": 42, "title": "Test", "originalLanguage": {"name": "English"}}
+        mocks["walk"].return_value = [("/data/media_cache/Movies", [], ["film.mkv"])]
+        mocks["get_signature"].return_value = ("hevc", "eac3", 8)
+        mocks["radarr_map"].return_value = {src_path: movie}
+
+        client.post("/media-test/generate")
+        _, meta = mocks["enqueue"].call_args.args
+        assert meta["arr_data"] == movie
+
+    def test_no_arr_match_stores_null_orig_lang(self, client, mocks):
+        mocks["walk"].return_value = [("/data/media_cache/Movies", [], ["film.mkv"])]
+        mocks["get_signature"].return_value = ("hevc", "eac3", 8)
+        # Both maps return empty — no match
+
+        client.post("/media-test/generate")
+        _, meta = mocks["enqueue"].call_args.args
+        assert meta["orig_lang"] is None
+        assert meta["arr_type"] is None
+
+    def test_arr_lookup_failure_does_not_abort_generate(self, client, mocks):
+        mocks["walk"].return_value = [("/data/media_cache/Movies", [], ["film.mkv"])]
+        mocks["get_signature"].return_value = ("hevc", "eac3", 8)
+        mocks["radarr_map"].side_effect = Exception("connection refused")
+        mocks["sonarr_map"].side_effect = Exception("connection refused")
+
+        rv = client.post("/media-test/generate")
+        assert rv.status_code == 202
+        assert len(rv.get_json()["enqueued"]) == 1
 
 
 # ---------------------------------------------------------------------------

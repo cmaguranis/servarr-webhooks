@@ -34,6 +34,43 @@ def get_all_series():
     return res.json()
 
 
+def get_episode_files(series_id: int) -> list:
+    res = requests.get(f"{_base()}/api/v3/episodefile", params={"seriesId": series_id}, headers=_headers(), timeout=_TIMEOUT)
+    res.raise_for_status()
+    return res.json()
+
+
+def get_path_lang_map() -> dict[str, str]:
+    """Return {file_path: original_language_name} for all episode files across all series."""
+    result = {}
+    for series in get_all_series():
+        lang = (series.get("originalLanguage") or {}).get("name")
+        if not lang:
+            continue
+        try:
+            for f in get_episode_files(series["id"]):
+                path = f.get("path")
+                if path:
+                    result[path] = lang
+        except Exception as e:
+            logger.warning(f"Sonarr: could not get episode files for series {series['id']}: {e}")
+    return result
+
+
+def get_path_episode_map() -> dict[str, dict]:
+    """Return {file_path: {"series": series_dict, "episode_file": file_dict}} for all episode files."""
+    result = {}
+    for series in get_all_series():
+        try:
+            for f in get_episode_files(series["id"]):
+                path = f.get("path")
+                if path:
+                    result[path] = {"series": series, "episode_file": f}
+        except Exception as e:
+            logger.warning(f"Sonarr: could not get episode files for series {series['id']}: {e}")
+    return result
+
+
 def update_series(series):
     res = requests.put(
         f"{_base()}/api/v3/series/{series['id']}",

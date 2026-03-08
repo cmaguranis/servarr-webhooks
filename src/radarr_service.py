@@ -34,6 +34,27 @@ def get_all_movies():
     return res.json()
 
 
+def get_path_lang_map() -> dict[str, str]:
+    """Return {file_path: original_language_name} for all movies that have a file."""
+    result = {}
+    for m in get_all_movies():
+        path = (m.get("movieFile") or {}).get("path")
+        lang = (m.get("originalLanguage") or {}).get("name")
+        if path and lang:
+            result[path] = lang
+    return result
+
+
+def get_path_movie_map() -> dict[str, dict]:
+    """Return {file_path: movie_dict} for all movies that have a file."""
+    result = {}
+    for m in get_all_movies():
+        path = (m.get("movieFile") or {}).get("path")
+        if path:
+            result[path] = m
+    return result
+
+
 def get_movie_by_tmdb(tmdb_id):
     res = requests.get(f"{_base()}/api/v3/movie", params={"tmdbId": tmdb_id}, headers=_headers(), timeout=_TIMEOUT)
     res.raise_for_status()

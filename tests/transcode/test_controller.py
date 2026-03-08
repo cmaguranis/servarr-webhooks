@@ -436,6 +436,15 @@ def folder_mocks():
             "enqueue": stack.enter_context(
                 patch("src.transcode.controller.enqueue_job", return_value=1)
             ),
+            "radarr_map": stack.enter_context(
+                patch("src.transcode.controller.radarr_service.get_path_lang_map", return_value={})
+            ),
+            "sonarr_map": stack.enter_context(
+                patch("src.transcode.controller.sonarr_service.get_path_lang_map", return_value={})
+            ),
+            "media_test_job": stack.enter_context(
+                patch("src.transcode.controller.get_media_test_job", return_value=None)
+            ),
         }
 
 
@@ -528,3 +537,79 @@ class TestEnqueueFolder:
         folder_mocks["enqueue"].side_effect = [1, 2, 3]
         data = self._post(client).get_json()
         assert len(data["enqueued"]) == 3
+
+    def test_eng_preferred_over_first_audio_stream(self, client, folder_mocks):
+        # ITA first, ENG second — should pick eng as orig_lang
+        folder_mocks["walk"].return_value = [("/data/media_test", [], ["dubbed.mkv"])]
+        folder_mocks["probe"].return_value = {
+            "format": {"bit_rate": "4000000"},
+            "streams": [
+                {"codec_type": "video", "codec_name": "h264"},
+                {"codec_type": "audio", "channels": 2, "tags": {"language": "ita"}},
+                {"codec_type": "audio", "channels": 2, "tags": {"language": "eng"}},
+            ],
+        }
+        self._post(client)
+        _, meta = folder_mocks["enqueue"].call_args.args
+        assert meta["orig_lang"] == "eng"
+
+    def test_has_51_based_on_selected_lang_stream(self, client, folder_mocks):
+        # ENG is stereo, ITA is 5.1 — has_51 should be False (ENG selected)
+        folder_mocks["walk"].return_value = [("/data/media_test", [], ["dubbed.mkv"])]
+        folder_mocks["probe"].return_value = {
+            "format": {"bit_rate": "4000000"},
+            "streams": [
+                {"codec_type": "video", "codec_name": "h264"},
+                {"codec_type": "audio", "channels": 6, "tags": {"language": "ita"}},
+                {"codec_type": "audio", "channels": 2, "tags": {"language": "eng"}},
+            ],
+        }
+        self._post(client)
+        _, meta = folder_mocks["enqueue"].call_args.args
+        assert meta["orig_lang"] == "eng"
+        assert meta["has_51"] is False
+
+    def test_media_test_stored_lang_takes_priority(self, client, folder_mocks):
+        # Clip has eng+ita audio; media_test queue says orig_lang=jpn (anime dub)
+        clip_path = "/data/media_test/clip.mkv"
+        folder_mocks["walk"].return_value = [("/data/media_test", [], ["clip.mkv"])]
+        folder_mocks["media_test_job"].return_value = {
+            "meta": json.dumps({"orig_lang": "jpn", "source_path": "/media/anime/ep.mkv"})
+        }
+        folder_mocks["probe"].return_value = {
+            "format": {"bit_rate": "4000000"},
+            "streams": [
+                {"codec_type": "video", "codec_name": "hevc"},
+                {"codec_type": "audio", "channels": 2, "tags": {"language": "jpn"}},
+                {"codec_type": "audio", "channels": 2, "tags": {"language": "eng"}},
+            ],
+        }
+        self._post(client)
+        folder_mocks["media_test_job"].assert_called_once_with(clip_path)
+        _, meta = folder_mocks["enqueue"].call_args.args
+        assert meta["orig_lang"] == "jpn"
+
+    def test_arr_lang_map_used_when_no_media_test_job(self, client, folder_mocks):
+        # File has eng+ita tracks; Arr map says original is Japanese
+        folder_mocks["walk"].return_value = [("/media/anime", [], ["ep.mkv"])]
+        folder_mocks["sonarr_map"].return_value = {"/media/anime/ep.mkv": "Japanese"}
+        folder_mocks["probe"].return_value = {
+            "format": {"bit_rate": "4000000"},
+            "streams": [
+                {"codec_type": "video", "codec_name": "hevc"},
+                {"codec_type": "audio", "channels": 2, "tags": {"language": "jpn"}},
+                {"codec_type": "audio", "channels": 2, "tags": {"language": "eng"}},
+            ],
+        }
+        self._post(client, path="/media/anime")
+        _, meta = folder_mocks["enqueue"].call_args.args
+        assert meta["orig_lang"] == "jpn"
+
+    def test_arr_lookup_failure_falls_back_to_heuristic(self, client, folder_mocks):
+        folder_mocks["walk"].return_value = [("/data/media_test", [], ["clip.mkv"])]
+        folder_mocks["radarr_map"].side_effect = Exception("connection refused")
+        folder_mocks["sonarr_map"].side_effect = Exception("connection refused")
+        self._post(client)
+        # Should still succeed via eng heuristic
+        _, meta = folder_mocks["enqueue"].call_args.args
+        assert meta["orig_lang"] == "eng"

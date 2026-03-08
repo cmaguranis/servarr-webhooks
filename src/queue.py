@@ -109,6 +109,17 @@ class JobQueue:
             finally:
                 conn.close()
 
+    def get_job_by_path(self, path: str) -> dict | None:
+        with self._lock:
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    f"SELECT * FROM {self._table} WHERE path=?", (path,)
+                ).fetchone()
+                return dict(row) if row else None
+            finally:
+                conn.close()
+
     def list_jobs(self, status: str | None = None) -> list:
         with self._lock:
             conn = self._connect()
