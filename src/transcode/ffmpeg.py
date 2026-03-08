@@ -48,35 +48,43 @@ _disk_lock = threading.Lock()
 _primary_reserved: int = 0
 
 
-def get_loudness_stats(
-    path: str,
-    orig_lang: str | None = None,
-    duration: float | None = None,
-) -> dict | None:
-    # Select the same stream the encoder will use:
-    # prefer original language; if 5.1 present use that, else stereo fallback.
-    if orig_lang:
-        audio_map = f"0:a:m:language:{orig_lang}"
-    else:
-        audio_map = "0:a:0"
-
-    # Skip the first 10% of the file (intro/credits), then sample up to 5 minutes.
+def _run_loudnorm(path: str, audio_map: str, duration: float | None) -> dict | None:
     cmd = ["ffmpeg"]
     if duration and duration > 0:
         skip = duration * 0.10
         cmd += ["-ss", f"{skip:.1f}"]
     cmd += ["-i", path, "-t", str(LOUDNESS_SAMPLE_SECONDS)]
-    # -vn skips video demux entirely; downmix to stereo before loudnorm avoids EAC3 Atmos issues.
-    cmd += ["-vn", "-map", audio_map, "-af", "aresample=48000,aformat=sample_fmts=fltp,loudnorm=print_format=json", "-ac", "2", "-f", "null", "-"]
+    # channel_layouts=stereo forces downmix before loudnorm — avoids EAC3 Atmos object-audio issues.
+    cmd += ["-vn", "-map", audio_map, "-af",
+            "aresample=48000,aformat=sample_fmts=fltp,loudnorm=print_format=json",
+            "-f", "null", "-"]
+    logger.info(f"loudnorm command: {' '.join(cmd)}")
     res = subprocess.run(cmd, capture_output=True, text=True)
+    json_start = res.stderr.rfind("{")
+    if json_start == -1:
+        logger.warning(f"loudnorm stderr tail ({audio_map}): {res.stderr[-500:]}")
+        return None
     try:
-        json_start = res.stderr.rfind("{")
-        if json_start == -1:
-            raise ValueError("no JSON in stderr")
         return json.loads(res.stderr[json_start:])
     except Exception:
-        logger.debug(f"loudnorm stderr tail: {res.stderr[-500:]}")
+        logger.warning(f"loudnorm stderr tail ({audio_map}): {res.stderr[-500:]}")
         return None
+
+
+def get_loudness_stats(
+    path: str,
+    orig_lang: str | None = None,
+    duration: float | None = None,
+) -> dict | None:
+    # Skip the first 10% of the file (intro/credits), then sample up to 5 minutes.
+    # Prefer language-tagged stream; fall back to first audio stream (0:a:0) on failure
+    # — EAC3 Atmos language selectors can fail to match even when the language is correct.
+    audio_map = f"0:a:m:language:{orig_lang}" if orig_lang else "0:a:0"
+    result = _run_loudnorm(path, audio_map, duration)
+    if result is None and orig_lang:
+        logger.warning(f"Loudnorm failed with language map '{audio_map}', retrying with 0:a:0")
+        result = _run_loudnorm(path, "0:a:0", duration)
+    return result
 
 
 def _audio_needs(stats: dict | None) -> tuple[bool, bool]:
@@ -89,8 +97,11 @@ def _audio_needs(stats: dict | None) -> tuple[bool, bool]:
     return needs_loudnorm, needs_dynaudnorm
 
 
+_AUDIO_FILTER_PREFIX = "aresample=48000,aformat=sample_fmts=fltp"
+
+
 def _build_audio_filter(stats: dict | None, needs_loudnorm: bool, needs_dynaudnorm: bool) -> str:
-    parts = []
+    parts = [_AUDIO_FILTER_PREFIX]
     if needs_loudnorm and stats:
         parts.append(
             f"loudnorm=I=-16:LRA=7:TP=-1.5"
@@ -155,17 +166,29 @@ def transcode_file(
         if orig_lang is None:
             main_audio = a_streams[0] if a_streams else {}
             orig_lang = main_audio.get("tags", {}).get("language", "eng")
-        # Resolve the audio-only index of the first stream matching orig_lang.
-        # Using a numeric index (0:a:N) is unambiguous vs language metadata selectors.
-        audio_idx = next(
-            (i for i, s in enumerate(a_streams) if s.get("tags", {}).get("language") == orig_lang),
-            0,
-        )
-        target_audio = a_streams[audio_idx] if a_streams else {}
-        audio_abs_idx = target_audio.get("index", 0)
+        orig_lang_streams = [s for s in a_streams if s.get("tags", {}).get("language") == orig_lang]
+        other_lang_count = len(a_streams) - len(orig_lang_streams)
+        if other_lang_count:
+            logger.info(f"{prefix}Stripping {other_lang_count} non-orig-lang audio stream(s) (keeping '{orig_lang}' only)")
+        # Prefer the 5.1 stream when multiple orig_lang streams exist; fall back to first.
+        # Using absolute stream index (not language selector) — unambiguous for EAC3 Atmos.
         if has_51 is None:
+            target_audio = (
+                next((s for s in orig_lang_streams if s.get("channels", 0) >= 6), None)
+                or (orig_lang_streams[0] if orig_lang_streams else a_streams[0] if a_streams else {})
+            )
             has_51 = target_audio.get("channels", 0) >= 6
-        logger.info(f"{prefix}Stream info: codec={codec}, bitrate={bitrate_kbps}kbps, lang={orig_lang}, 5.1={has_51}")
+        elif has_51:
+            target_audio = (
+                next((s for s in orig_lang_streams if s.get("channels", 0) >= 6), None)
+                or (orig_lang_streams[0] if orig_lang_streams else a_streams[0] if a_streams else {})
+            )
+        else:
+            target_audio = orig_lang_streams[0] if orig_lang_streams else (a_streams[0] if a_streams else {})
+        audio_abs_idx = target_audio.get("index", 0)
+        has_stereo = any(s.get("channels", 0) <= 2 for s in orig_lang_streams)
+        needs_stereo_encode = has_51 and not has_stereo
+        logger.info(f"{prefix}Stream info: codec={codec}, bitrate={bitrate_kbps}kbps, lang={orig_lang}, 5.1={has_51}, has_stereo={has_stereo}, strip_other_lang={other_lang_count}")
 
         text_sub_indices = [
             s["index"] for s in s_streams
@@ -193,7 +216,7 @@ def transcode_file(
         else:
             logger.warning(f"{prefix}Loudness analysis returned no stats — will apply full audio normalization")
 
-        if not needs_video and not needs_audio and not needs_sub_strip:
+        if not needs_video and not needs_audio and not needs_sub_strip and not needs_stereo_encode:
             logger.info(f"{prefix}No transcode needed: '{path}'")
             return
 
@@ -229,25 +252,24 @@ def transcode_file(
         else:
             cmd += ["-c:v", "copy"]
 
-        if needs_audio:
-            audio_filter = _build_audio_filter(stats, needs_loudnorm, needs_dynaudnorm)
-            if has_51:
-                cmd += [
-                    "-map", f"0:{audio_abs_idx}",
-                    "-map", f"0:{audio_abs_idx}",
-                    "-c:a:0", "aac", "-ac:0", "2", "-b:a:0", "192k",
-                    "-c:a:1", "ac3", "-b:a:1", "640k",
-                    "-disposition:a:0", "default", "-disposition:a:1", "0",
-                ]
-                if audio_filter:
-                    cmd += ["-af:0", audio_filter, "-af:1", audio_filter]
-            else:
-                cmd += [
-                    "-map", f"0:{audio_abs_idx}",
-                    "-c:a", "aac", "-ac", "2", "-b:a", "192k",
-                ]
-                if audio_filter:
-                    cmd += ["-af", audio_filter]
+        audio_filter = _build_audio_filter(stats, needs_loudnorm, needs_dynaudnorm)
+        if has_51:
+            # Always dual tracks: AAC stereo (downmix from 5.1) + AC3 5.1.
+            # audio_filter always applied (EAC3 Atmos safe; no-op overhead for AC3/AAC).
+            cmd += [
+                "-map", f"0:{audio_abs_idx}",
+                "-map", f"0:{audio_abs_idx}",
+                "-c:a:0", "aac", "-ac:0", "2", "-b:a:0", "192k",
+                "-c:a:1", "ac3", "-b:a:1", "640k",
+                "-disposition:a:0", "default", "-disposition:a:1", "0",
+                "-af:0", audio_filter, "-af:1", audio_filter,
+            ]
+        elif needs_audio:
+            cmd += [
+                "-map", f"0:{audio_abs_idx}",
+                "-c:a", "aac", "-ac", "2", "-b:a", "192k",
+                "-af", audio_filter,
+            ]
         else:
             cmd += [
                 "-map", f"0:{audio_abs_idx}",

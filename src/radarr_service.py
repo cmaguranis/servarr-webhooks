@@ -22,6 +22,12 @@ def get_movie(movie_id):
     return res.json()
 
 
+def get_movie_file(file_id: int) -> dict | None:
+    res = requests.get(f"{_base()}/api/v3/movieFile/{file_id}", headers=_headers(), timeout=_TIMEOUT)
+    res.raise_for_status()
+    return res.json()
+
+
 def get_all_movies():
     res = requests.get(f"{_base()}/api/v3/movie", headers=_headers(), timeout=_TIMEOUT)
     res.raise_for_status()

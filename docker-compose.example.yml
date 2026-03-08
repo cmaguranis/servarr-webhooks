@@ -1,12 +1,12 @@
 services:
   servarr-webhooks:
-    image: ghcr.io/your-user/servarr-webhooks:latest
+    image: ghcr.io/cmaguranis/servarr-webhooks:latest
     container_name: servarr-webhooks
     restart: unless-stopped
     ports:
       - 5001:5001
     shm_size: 4gb
-    stop_grace_period: 60s
+    stop_grace_period: 20s
     environment:
       - TZ=${{ tz }}
       - SEERR_BASEURL=http://192.168.1.67:5055

@@ -22,6 +22,12 @@ def get_series(series_id):
     return res.json()
 
 
+def get_episode_file(file_id: int) -> dict | None:
+    res = requests.get(f"{_base()}/api/v3/episodeFile/{file_id}", headers=_headers(), timeout=_TIMEOUT)
+    res.raise_for_status()
+    return res.json()
+
+
 def get_all_series():
     res = requests.get(f"{_base()}/api/v3/series", headers=_headers(), timeout=_TIMEOUT)
     res.raise_for_status()

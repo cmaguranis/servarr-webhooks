@@ -61,6 +61,7 @@ RADARR_PAYLOAD = {
         "tags": [],
     },
     "movieFile": {
+        "id": 10,
         "path": "/media/movies/Test Movie (2020)/Test Movie.mkv",
         "releaseGroup": "SomeGroup",
         "mediaInfo": {
@@ -81,6 +82,7 @@ SONARR_PAYLOAD = {
         "tags": [],
     },
     "episodeFile": {
+        "id": 20,
         "path": "/media/tv/Test Show/Season 01/S01E01.mkv",
         "releaseGroup": "SomeGroup",
         "mediaInfo": {
@@ -152,6 +154,11 @@ class TestRadarrEnqueue:
         _, meta = mocks["enqueue"].call_args.args
         assert meta["codec"] == "AVC"
         assert meta["bitrate_kbps"] == 12000
+
+    def test_meta_arr_file_id(self, client, mocks):
+        _post(client, RADARR_PAYLOAD)
+        _, meta = mocks["enqueue"].call_args.args
+        assert meta["arr_file_id"] == 10
 
     def test_meta_has_51_true_for_6_channels(self, client, mocks):
         _post(client, RADARR_PAYLOAD)

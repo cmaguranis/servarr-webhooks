@@ -70,6 +70,7 @@ def transcode_webhook():
         "has_51": (media_info.get("audioChannels") or 0) > 5,
         "arr_type": arr_type,
         "arr_id": media_obj.get("id"),
+        "arr_file_id": file_info.get("id"),
         "dry_run": request.args.get("dry_run", "").lower() == "true",
     }
 
