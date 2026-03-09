@@ -40,13 +40,13 @@ def mocks():
                 patch("src.transcode.controller.enqueue_job")
             ),
             "list_jobs": stack.enter_context(
-                patch("src.transcode.controller.list_jobs", return_value=[])
+                patch("src.transcode.queue.list_jobs", return_value=[])
             ),
             "clear_jobs": stack.enter_context(
-                patch("src.transcode.controller.clear_jobs", return_value=0)
+                patch("src.transcode.queue.clear_jobs", return_value=0)
             ),
             "requeue": stack.enter_context(
-                patch("src.transcode.controller.requeue_job", return_value=True)
+                patch("src.transcode.queue.requeue_job", return_value=True)
             ),
         }
 

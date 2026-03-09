@@ -122,6 +122,81 @@ def rescan_movie(movie_id: int):
     logger.info(f"Radarr: rescan issued for movie {movie_id}")
 
 
+def delete_movie(movie_id: int, delete_files: bool = True, add_exclusion: bool = False) -> bool:
+    try:
+        res = requests.delete(
+            f"{_base()}/api/v3/movie/{movie_id}",
+            params={"deleteFiles": str(delete_files).lower(), "addImportExclusion": str(add_exclusion).lower()},
+            headers=_headers(),
+            timeout=_TIMEOUT,
+        )
+        res.raise_for_status()
+        logger.info(f"Radarr: deleted movie {movie_id} (deleteFiles={delete_files})")
+        return True
+    except requests.RequestException as e:
+        logger.error(f"Radarr: failed to delete movie {movie_id}: {e}")
+        return False
+
+
+def unmonitor_movie(movie_id: int) -> bool:
+    try:
+        movie = get_movie(movie_id)
+        movie["monitored"] = False
+        update_movie(movie)
+        logger.info(f"Radarr: unmonitored movie {movie_id}")
+        return True
+    except requests.RequestException as e:
+        logger.error(f"Radarr: failed to unmonitor movie {movie_id}: {e}")
+        return False
+
+
+_BULK_CHUNK = 50
+
+
+def bulk_delete_movies(
+    movie_ids: list[int],
+    delete_files: bool = True,
+    add_exclusion: bool = False,
+    chunk_size: int = _BULK_CHUNK,
+) -> bool:
+    try:
+        for i in range(0, len(movie_ids), chunk_size):
+            chunk = movie_ids[i:i + chunk_size]
+            res = requests.delete(
+                f"{_base()}/api/v3/movie/editor",
+                headers=_headers(),
+                json={"movieIds": chunk, "deleteFiles": delete_files, "addImportExclusion": add_exclusion},
+                timeout=_TIMEOUT,
+            )
+            res.raise_for_status()
+        logger.info(f"Radarr: bulk deleted {len(movie_ids)} movies (deleteFiles={delete_files})")
+        return True
+    except requests.RequestException as e:
+        logger.error(f"Radarr: failed to bulk delete movies: {e}")
+        return False
+
+
+def bulk_unmonitor_movies(
+    movie_ids: list[int],
+    chunk_size: int = _BULK_CHUNK,
+) -> bool:
+    try:
+        for i in range(0, len(movie_ids), chunk_size):
+            chunk = movie_ids[i:i + chunk_size]
+            res = requests.put(
+                f"{_base()}/api/v3/movie/editor",
+                headers=_headers(),
+                json={"movieIds": chunk, "monitored": False},
+                timeout=_TIMEOUT,
+            )
+            res.raise_for_status()
+        logger.info(f"Radarr: bulk unmonitored {len(movie_ids)} movies")
+        return True
+    except requests.RequestException as e:
+        logger.error(f"Radarr: failed to bulk unmonitor movies: {e}")
+        return False
+
+
 def trigger_import_scan(path: str) -> dict:
     res = requests.post(
         f"{_base()}/api/v3/command",

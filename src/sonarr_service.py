@@ -34,6 +34,13 @@ def get_all_series():
     return res.json()
 
 
+def get_series_by_tvdb(tvdb_id: int) -> dict | None:
+    res = requests.get(f"{_base()}/api/v3/series", params={"tvdbId": tvdb_id}, headers=_headers(), timeout=_TIMEOUT)
+    res.raise_for_status()
+    series = res.json()
+    return series[0] if series else None
+
+
 def get_episode_files(series_id: int) -> list:
     res = requests.get(f"{_base()}/api/v3/episodefile", params={"seriesId": series_id}, headers=_headers(), timeout=_TIMEOUT)
     res.raise_for_status()
@@ -117,6 +124,81 @@ def rescan_series(series_id: int):
     )
     res.raise_for_status()
     logger.info(f"Sonarr: rescan issued for series {series_id}")
+
+
+def delete_series(series_id: int, delete_files: bool = True, add_exclusion: bool = False) -> bool:
+    try:
+        res = requests.delete(
+            f"{_base()}/api/v3/series/{series_id}",
+            params={"deleteFiles": str(delete_files).lower(), "addImportExclusion": str(add_exclusion).lower()},
+            headers=_headers(),
+            timeout=_TIMEOUT,
+        )
+        res.raise_for_status()
+        logger.info(f"Sonarr: deleted series {series_id} (deleteFiles={delete_files})")
+        return True
+    except requests.RequestException as e:
+        logger.error(f"Sonarr: failed to delete series {series_id}: {e}")
+        return False
+
+
+def unmonitor_series(series_id: int) -> bool:
+    try:
+        series = get_series(series_id)
+        series["monitored"] = False
+        update_series(series)
+        logger.info(f"Sonarr: unmonitored series {series_id}")
+        return True
+    except requests.RequestException as e:
+        logger.error(f"Sonarr: failed to unmonitor series {series_id}: {e}")
+        return False
+
+
+_BULK_CHUNK = 50
+
+
+def bulk_delete_series(
+    series_ids: list[int],
+    delete_files: bool = True,
+    add_exclusion: bool = False,
+    chunk_size: int = _BULK_CHUNK,
+) -> bool:
+    try:
+        for i in range(0, len(series_ids), chunk_size):
+            chunk = series_ids[i:i + chunk_size]
+            res = requests.delete(
+                f"{_base()}/api/v3/series/editor",
+                headers=_headers(),
+                json={"seriesIds": chunk, "deleteFiles": delete_files, "addImportExclusion": add_exclusion},
+                timeout=_TIMEOUT,
+            )
+            res.raise_for_status()
+        logger.info(f"Sonarr: bulk deleted {len(series_ids)} series (deleteFiles={delete_files})")
+        return True
+    except requests.RequestException as e:
+        logger.error(f"Sonarr: failed to bulk delete series: {e}")
+        return False
+
+
+def bulk_unmonitor_series(
+    series_ids: list[int],
+    chunk_size: int = _BULK_CHUNK,
+) -> bool:
+    try:
+        for i in range(0, len(series_ids), chunk_size):
+            chunk = series_ids[i:i + chunk_size]
+            res = requests.put(
+                f"{_base()}/api/v3/series/editor",
+                headers=_headers(),
+                json={"seriesIds": chunk, "monitored": False},
+                timeout=_TIMEOUT,
+            )
+            res.raise_for_status()
+        logger.info(f"Sonarr: bulk unmonitored {len(series_ids)} series")
+        return True
+    except requests.RequestException as e:
+        logger.error(f"Sonarr: failed to bulk unmonitor series: {e}")
+        return False
 
 
 def trigger_import_scan(path: str) -> dict:

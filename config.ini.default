@@ -2,3 +2,9 @@
 skip_groups = yify, yts, judas
 cleanup_done_days = 7
 cleanup_failed_days = 21
+
+[plex]
+collection_days = 30
+movie_batch = 100
+collection_name = Cleanup Queue
+worker_count = 2

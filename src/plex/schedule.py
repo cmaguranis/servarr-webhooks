@@ -2,7 +2,7 @@ import os
 
 from src.schedule import Schedule
 
-_SCHEDULE_PATH = os.getenv("TRANSCODE_SCHEDULE_PATH", "/config/data/transcode_schedule.json")
+_SCHEDULE_PATH = os.getenv("PLEX_SCHEDULE_PATH", "/config/data/plex_cleanup_schedule.json")
 
 
 def is_enabled() -> bool:

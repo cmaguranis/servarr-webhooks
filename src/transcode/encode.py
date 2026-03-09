@@ -16,10 +16,14 @@ TRANSCODE_TEMP_FALLBACK = os.getenv("TRANSCODE_TEMP_FALLBACK", "/transcode-temp"
 
 HEVC_ALIASES = {"x265", "h265", "h.265", "hevc"}
 
+# Only re-encode HEVC that exceeds this bitrate; below it the file is already compact enough.
+# 6,667 kbps ≈ 50 MB/min → ~6 GB for a 2-hour movie.
+_HEVC_BITRATE_THRESHOLD_KBPS = 6_667
+
 
 def video_transcode_needed(codec: str | None, bitrate_kbps: int | None) -> bool:
     codec_norm = (codec or "").lower().replace(" ", "")
-    return not (codec_norm in HEVC_ALIASES and bitrate_kbps and bitrate_kbps <= 8000)
+    return not (codec_norm in HEVC_ALIASES and bitrate_kbps and bitrate_kbps <= _HEVC_BITRATE_THRESHOLD_KBPS)
 
 # QSV hardware decoders for common input codecs (Gen 8+ iGPU).
 # Keeping frames on the GPU avoids a CPU↔GPU copy before hevc_qsv encoding.

@@ -31,7 +31,9 @@ class JobQueue:
         return conn
 
     def init_db(self):
-        os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
+        dir_ = os.path.dirname(self._db_path)
+        if dir_:
+            os.makedirs(dir_, exist_ok=True)
         with self._lock:
             conn = self._connect()
             try:
@@ -193,3 +195,31 @@ class JobQueue:
             finally:
                 conn.close()
         logger.info(f"{self._table} job cleanup complete")
+
+
+class QueueModule:
+    """Facade over JobQueue. Instantiate with db_path + table; override only domain methods."""
+
+    def __init__(self, db_path: str, table: str):
+        self._q = JobQueue(db_path, table)
+
+    def init_db(self): self._q.init_db()
+
+    def enqueue_job(self, path: str, meta: dict, priority: int = 1) -> int | None:
+        return self._q.enqueue_job(path, meta, priority)
+
+    def claim_pending_jobs(self, limit: int = 10) -> list: return self._q.claim_pending_jobs(limit)
+
+    def mark_done(self, job_id: int, result: str | None = None): self._q.mark_done(job_id, result)
+
+    def mark_failed(self, job_id: int, error: str | None = None): self._q.mark_failed(job_id, error)
+
+    def get_job_by_path(self, path: str) -> dict | None: return self._q.get_job_by_path(path)
+
+    def list_jobs(self, status: str | None = None) -> list: return self._q.list_jobs(status)
+
+    def requeue_job(self, job_id: int, dry_run: bool = False) -> bool: return self._q.requeue_job(job_id, dry_run)
+
+    def clear_jobs(self, status: str) -> int: return self._q.clear_jobs(status)
+
+    def cleanup_jobs(self, done_days: int = 7, failed_days: int = 21): self._q.cleanup_jobs(done_days, failed_days)

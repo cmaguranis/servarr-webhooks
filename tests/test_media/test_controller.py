@@ -48,10 +48,10 @@ def mocks():
                 patch("src.test_media.controller.enqueue_job", return_value=1)
             ),
             "list_jobs": stack.enter_context(
-                patch("src.test_media.controller.list_jobs", return_value=[])
+                patch("src.test_media.queue.list_jobs", return_value=[])
             ),
             "clear_jobs": stack.enter_context(
-                patch("src.test_media.controller.clear_jobs", return_value=0)
+                patch("src.test_media.queue.clear_jobs", return_value=0)
             ),
             "radarr_map": stack.enter_context(
                 patch("src.test_media.controller.radarr_service.get_path_movie_map", return_value={})

@@ -1,7 +1,7 @@
 import os
 import logging
 
-from src.test_media.queue import _q
+from src.test_media.queue import _queue
 from src.test_media.slice import slice_file
 from src.worker_base import Worker
 
@@ -23,7 +23,7 @@ def _execute(path: str, meta: dict, job_id: int, dry_run: bool):
 
 _worker = Worker(
     name="media-test-worker",
-    queue=_q,
+    queue=_queue,
     execute_fn=_execute,
     worker_count=MEDIA_TEST_WORKERS,
 )

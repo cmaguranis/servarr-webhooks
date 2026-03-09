@@ -1,3 +1,9 @@
+"""Flask blueprint for the transcode webhook and job management API.
+
+Receives Radarr/Sonarr download webhooks, enqueues HEVC transcode jobs, and
+exposes job queue and schedule management endpoints.
+"""
+
 import json
 import logging
 import os
@@ -7,13 +13,17 @@ from src import config, radarr_service, sonarr_service
 from src.lang import parse_lang as _parse_lang
 from src.media_extensions import MEDIA_EXTENSIONS
 from src.test_media.queue import get_job_by_path as get_media_test_job
-from src.transcode.queue import clear_jobs, enqueue_job, list_jobs, requeue_job
+from src.transcode.queue import enqueue_job
 from src.transcode.probe import get_stream_info
 from src.transcode import schedule
+from src.job_routes import register_job_routes, register_schedule_routes
+from src.transcode import queue as transcode_queue
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint("transcode", __name__)
+register_job_routes(bp, transcode_queue, "/transcode")
+register_schedule_routes(bp, schedule, "/transcode")
 
 
 @bp.route("/transcode-webhook", methods=["POST"])
@@ -75,52 +85,6 @@ def transcode_webhook():
     enqueue_job(file_info["path"], meta)
     return ("", 202)
 
-
-@bp.route("/transcode/jobs", methods=["GET"])
-def get_jobs():
-    status = request.args.get("status")  # optional filter: pending, processing, done, failed
-    jobs = list_jobs(status)
-    for job in jobs:
-        if isinstance(job.get("meta"), str):
-            try:
-                job["meta"] = json.loads(job["meta"])
-            except (json.JSONDecodeError, TypeError):
-                pass
-    return ({"jobs": jobs}, 200)
-
-
-@bp.route("/transcode/jobs", methods=["DELETE"])
-def delete_jobs():
-    status = request.args.get("status")
-    if not status:
-        return ({"error": "Missing required query param: status"}, 400)
-    deleted = clear_jobs(status)
-    logger.info(f"Cleared {deleted} transcode jobs with status={status}")
-    return ({"deleted": deleted}, 200)
-
-
-@bp.route("/transcode/schedule", methods=["GET"])
-def get_schedule():
-    return ({"enabled": schedule.is_enabled()}, 200)
-
-
-@bp.route("/transcode/schedule", methods=["POST"])
-def set_schedule():
-    enabled = request.args.get("enabled", "").lower()
-    if enabled not in ("true", "false"):
-        return ({"error": "Missing or invalid query param: enabled (true|false)"}, 400)
-    schedule.set_enabled(enabled == "true")
-    return ({"enabled": schedule.is_enabled()}, 200)
-
-
-@bp.route("/transcode/jobs/<int:job_id>/retry", methods=["POST"])
-def retry_job(job_id):
-    dry_run = request.args.get("dry_run", "").lower() == "true"
-    found = requeue_job(job_id, dry_run=dry_run)
-    if not found:
-        return ({"error": f"Job {job_id} not found"}, 404)
-    logger.info(f"Requeued job {job_id} (dry_run={dry_run})")
-    return ("", 202)
 
 
 @bp.route("/transcode/enqueue-folder", methods=["POST"])

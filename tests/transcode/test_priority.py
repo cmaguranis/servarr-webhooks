@@ -3,8 +3,10 @@
 import pytest
 from unittest.mock import patch
 
-from src.transcode.encode import video_transcode_needed
+from src.transcode.encode import video_transcode_needed, _HEVC_BITRATE_THRESHOLD_KBPS
 from src.transcode.queue import _compute_priority
+
+_THRESHOLD = _HEVC_BITRATE_THRESHOLD_KBPS  # 440_000 kbps (55 MB/s)
 
 
 # ---------------------------------------------------------------------------
@@ -13,14 +15,14 @@ from src.transcode.queue import _compute_priority
 
 class TestVideoTranscodeNeeded:
     @pytest.mark.parametrize("codec", ["hevc", "HEVC", "x265", "X265", "h265", "H265", "h.265", "H.265"])
-    def test_hevc_under_8000_kbps_not_needed(self, codec):
-        assert video_transcode_needed(codec, 8000) is False
+    def test_hevc_at_threshold_not_needed(self, codec):
+        assert video_transcode_needed(codec, _THRESHOLD) is False
 
-    def test_hevc_exactly_8000_kbps_not_needed(self):
-        assert video_transcode_needed("hevc", 8000) is False
+    def test_hevc_below_threshold_not_needed(self):
+        assert video_transcode_needed("hevc", _THRESHOLD - 1) is False
 
-    def test_hevc_over_8000_kbps_needed(self):
-        assert video_transcode_needed("hevc", 8001) is True
+    def test_hevc_over_threshold_needed(self):
+        assert video_transcode_needed("hevc", _THRESHOLD + 1) is True
 
     def test_hevc_zero_bitrate_needed(self):
         # Unknown bitrate → assume transcode needed
@@ -43,7 +45,7 @@ class TestVideoTranscodeNeeded:
 
     def test_hevc_with_spaces_normalized(self):
         # "h evc" → "hevc" after space removal
-        assert video_transcode_needed("h evc", 5000) is False
+        assert video_transcode_needed("h evc", _THRESHOLD - 1000) is False
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +54,7 @@ class TestVideoTranscodeNeeded:
 
 class TestComputePriority:
     def test_audio_only_gets_priority_2(self):
-        meta = {"codec": "hevc", "bitrate_kbps": 5000}
+        meta = {"codec": "hevc", "bitrate_kbps": _THRESHOLD - 1}
         assert _compute_priority(meta) == 2
 
     def test_video_encode_needed_gets_priority_1(self):
@@ -60,7 +62,7 @@ class TestComputePriority:
         assert _compute_priority(meta) == 1
 
     def test_hevc_high_bitrate_gets_priority_1(self):
-        meta = {"codec": "hevc", "bitrate_kbps": 12000}
+        meta = {"codec": "hevc", "bitrate_kbps": _THRESHOLD + 1}
         assert _compute_priority(meta) == 1
 
     def test_missing_codec_gets_priority_1(self):
@@ -81,19 +83,23 @@ class TestComputePriority:
 
 class TestTranscodeEnqueuePriority:
     def test_hevc_low_bitrate_enqueued_with_priority_2(self, tmp_path):
-        from src.queue import JobQueue
+        from src.queue import JobQueue, QueueModule
         q = JobQueue(db_path=str(tmp_path / "t.db"), table="transcode_jobs")
         q.init_db()
-        with patch("src.transcode.queue._q", q):
+        qm = QueueModule.__new__(QueueModule)
+        qm._q = q
+        with patch("src.transcode.queue._queue", qm):
             from src.transcode import queue as tq
             tq.enqueue_job("/a.mkv", {"codec": "hevc", "bitrate_kbps": 5000})
         assert q.list_jobs()[0]["priority"] == 2
 
     def test_h264_enqueued_with_priority_1(self, tmp_path):
-        from src.queue import JobQueue
+        from src.queue import JobQueue, QueueModule
         q = JobQueue(db_path=str(tmp_path / "t.db"), table="transcode_jobs")
         q.init_db()
-        with patch("src.transcode.queue._q", q):
+        qm = QueueModule.__new__(QueueModule)
+        qm._q = q
+        with patch("src.transcode.queue._queue", qm):
             from src.transcode import queue as tq
             tq.enqueue_job("/a.mkv", {"codec": "h264", "bitrate_kbps": 5000})
         assert q.list_jobs()[0]["priority"] == 1

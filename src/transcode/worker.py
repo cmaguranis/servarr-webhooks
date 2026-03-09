@@ -4,7 +4,7 @@ import logging
 
 from src import radarr_service, sonarr_service
 from src.test_media.slice import build_output_path
-from src.transcode.queue import _q, cleanup_jobs
+from src.transcode.queue import _queue, cleanup_jobs
 from src.transcode.encode import transcode_file
 from src.transcode.probe import get_stream_info
 from src.transcode import schedule
@@ -68,7 +68,7 @@ def _post_transcode(job_id: int, meta: dict):
 
 _worker = Worker(
     name="transcode-worker",
-    queue=_q,
+    queue=_queue,
     execute_fn=_execute,
     on_complete=_post_transcode,
     cleanup_fn=cleanup_jobs,

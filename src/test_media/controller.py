@@ -1,4 +1,9 @@
-import json
+"""Flask blueprint for the test media generation API.
+
+Scans the media cache for representative files, slices 30-second test clips,
+and exposes job queue management endpoints.
+"""
+
 import logging
 import os
 import random
@@ -8,12 +13,15 @@ from flask import Blueprint, request
 from src import radarr_service, sonarr_service
 from src.lang import parse_lang
 from src.media_extensions import MEDIA_EXTENSIONS
-from src.test_media.queue import clear_jobs, enqueue_job, list_jobs
+from src.test_media.queue import enqueue_job
 from src.test_media.slice import build_output_path, get_duration, get_media_signature
+from src.job_routes import register_job_routes
+from src.test_media import queue as test_media_queue
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint("test_media", __name__)
+register_job_routes(bp, test_media_queue, "/media-test")
 
 MEDIA_TEST_CACHE_DIR  = os.getenv("MEDIA_TEST_CACHE_DIR",  "/data/media_cache")
 MEDIA_TEST_OUTPUT_DIR = os.getenv("MEDIA_TEST_OUTPUT_DIR", "/data/media_test")
@@ -182,24 +190,3 @@ def generate():
     return ({"dry_run": dry_run, "enqueued": enqueued, "skipped": skipped}, 202)
 
 
-@bp.route("/media-test/jobs", methods=["DELETE"])
-def delete_jobs():
-    status = request.args.get("status")
-    if not status:
-        return ({"error": "Missing required query param: status"}, 400)
-    deleted = clear_jobs(status)
-    logger.info(f"Cleared {deleted} media-test jobs with status={status}")
-    return ({"deleted": deleted}, 200)
-
-
-@bp.route("/media-test/jobs", methods=["GET"])
-def get_jobs():
-    status = request.args.get("status")
-    jobs = list_jobs(status)
-    for job in jobs:
-        if isinstance(job.get("meta"), str):
-            try:
-                job["meta"] = json.loads(job["meta"])
-            except (json.JSONDecodeError, TypeError):
-                pass
-    return ({"jobs": jobs}, 200)

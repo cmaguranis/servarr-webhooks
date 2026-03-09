@@ -27,6 +27,12 @@ On first run, `/config/config.ini` is created automatically from the built-in de
 | `SONARR_TARGET_QUALITY_PROFILE_ID` | Quality profile ID to apply after first episode download |
 | `ROOT_FOLDER_ANIME_MOVIES` | Root folder path for anime movies |
 | `TRANSCODE_WORKERS` | Parallel transcode jobs (default: `1`) |
+| `PLEX_BASEURL` | Plex server URL (e.g. `http://192.168.1.x:32400`) |
+| `PLEX_TOKEN` | Plex authentication token |
+| `PLEX_CLEANUP_WORKERS` | Parallel plex cleanup jobs (default: `2`) |
+| `PLEX_CLEANUP_DB` | Path to cleanup job queue DB (default: `/config/data/plex_cleanup.db`) |
+| `PLEX_MEDIA_DB` | Path to media state tracking DB (default: `/config/data/plex_media.db`) |
+| `PLEX_SCHEDULE_PATH` | Path to enabled/disabled flag file (default: `/config/data/plex_cleanup_schedule.json`) |
 
 ### Runtime config (`/config/config.ini`)
 
@@ -37,6 +43,12 @@ Edit on the host without restarting the container:
 skip_groups = yify, yts, judas   ; comma-separated, case-insensitive
 cleanup_done_days = 7
 cleanup_failed_days = 21
+
+[plex]
+collection_days = 30      ; days in Cleanup Queue before item is deleted
+movie_batch = 100         ; movies fetched per Plex API call
+collection_name = Cleanup Queue
+worker_count = 2
 ```
 
 ---
@@ -280,7 +292,66 @@ Response:
 **List jobs:**
 ```bash
 curl http://localhost:5001/media-test/jobs
-curl "http://localhost:5001/media-test/jobs?status=done"
+curl "http://192.168.1.67:5001/media-test/jobs?status=done"
+```
+
+---
+
+## Plex Cleanup
+
+Automatically categorises Plex media against a set of rules and enqueues cleanup actions (add to watchlist collection, promote from cache to main storage, or delete via Radarr/Sonarr). A background worker processes jobs continuously; the enabled/disabled flag lets you pause it without stopping the service.
+
+**Rules applied per item:**
+
+| Condition | Action |
+|---|---|
+| User rating > 6 and in `/media_cache` | Promote to `/media` |
+| User rating > 6 | Do nothing |
+| User rating ≤ 6 | Delete |
+| Unrated, unwatched, added > 60 days ago | Add to collection |
+| Unrated, watched, last viewed > 14 days ago and added > 30 days ago | Add to collection |
+| In collection for ≥ `collection_days` | Delete |
+
+### API
+
+**Run the rules pass** (fetches all Plex media, applies rules, enqueues jobs):
+```bash
+curl -X POST http://localhost:5001/plex/cleanup/rules
+```
+
+Response:
+```json
+{
+  "add_to_collection": 12,
+  "delete": 3,
+  "promote": 2,
+  "do_nothing": 847
+}
+```
+
+**Check / toggle the worker schedule:**
+```bash
+# Check current state
+curl http://localhost:5001/plex/cleanup/schedule
+
+# Pause the worker (stops claiming new jobs)
+curl -X POST "http://localhost:5001/plex/cleanup/schedule?enabled=false"
+
+# Resume the worker
+curl -X POST "http://localhost:5001/plex/cleanup/schedule?enabled=true"
+```
+
+**Manage jobs:**
+```bash
+# List all jobs (optionally filter by status: pending, processing, done, failed)
+curl http://localhost:5001/plex/cleanup/jobs
+curl "http://localhost:5001/plex/cleanup/jobs?status=failed"
+
+# Clear jobs by status
+curl -X DELETE "http://localhost:5001/plex/cleanup/jobs?status=done"
+
+# Requeue a failed job
+curl -X POST http://localhost:5001/plex/cleanup/jobs/42/retry
 ```
 
 ---
