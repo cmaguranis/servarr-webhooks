@@ -1,4 +1,5 @@
 import logging
+
 import requests
 
 from src import config
@@ -46,6 +47,28 @@ def get_episode_files(series_id: int) -> list:
     res = requests.get(f"{_base()}/api/v3/episodefile", params={"seriesId": series_id}, headers=_headers(), timeout=_TIMEOUT)
     res.raise_for_status()
     return res.json()
+
+
+def delete_episode_files(series_id: int) -> bool:
+    """Delete all episode files for a series but keep it monitored in Sonarr."""
+    try:
+        files = get_episode_files(series_id)
+        file_ids = [f["id"] for f in files if "id" in f]
+        if not file_ids:
+            logger.info(f"Sonarr: no episode files to delete for series {series_id}")
+            return True
+        res = requests.delete(
+            f"{_base()}/api/v3/episodeFile/bulk",
+            headers=_headers(),
+            json={"episodeFileIds": file_ids},
+            timeout=_TIMEOUT,
+        )
+        res.raise_for_status()
+        logger.info(f"Sonarr: deleted {len(file_ids)} episode files for series {series_id} (monitoring kept)")
+        return True
+    except requests.RequestException as e:
+        logger.error(f"Sonarr: failed to delete episode files for series {series_id}: {e}")
+        return False
 
 
 def get_path_lang_map() -> dict[str, str]:
@@ -141,6 +164,40 @@ def delete_series(series_id: int, delete_files: bool = True, add_exclusion: bool
     except requests.RequestException as e:
         logger.error(f"Sonarr: failed to delete series {series_id}: {e}")
         return False
+
+
+_profile_cache: dict[int, dict] = {}
+
+
+def get_quality_profile(profile_id: int) -> dict:
+    if profile_id not in _profile_cache:
+        res = requests.get(f"{_base()}/api/v3/qualityprofile/{profile_id}", headers=_headers(), timeout=_TIMEOUT)
+        res.raise_for_status()
+        _profile_cache[profile_id] = res.json()
+    return _profile_cache[profile_id]
+
+
+def is_cutoff_met(arr_id: int, quality_profile_id: int, current_quality_id: int) -> bool:
+    profile = get_quality_profile(quality_profile_id)
+    cutoff_id = profile["cutoff"]
+    ordered = [
+        item["quality"]["id"]
+        for item in profile.get("items", [])
+        if item.get("allowed") and "quality" in item
+    ]
+    if current_quality_id not in ordered or cutoff_id not in ordered:
+        return True  # can't determine → assume met, do full transcode
+    return ordered.index(current_quality_id) >= ordered.index(cutoff_id)
+
+
+def has_pending_queue_item(series_id: int) -> bool:
+    res = requests.get(
+        f"{_base()}/api/v3/queue",
+        params={"seriesId": series_id, "pageSize": 1},
+        headers=_headers(), timeout=_TIMEOUT,
+    )
+    res.raise_for_status()
+    return res.json().get("totalRecords", 0) > 0
 
 
 def unmonitor_series(series_id: int) -> bool:

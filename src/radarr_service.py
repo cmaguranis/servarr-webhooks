@@ -1,4 +1,6 @@
 import logging
+import os
+
 import requests
 
 from src import config
@@ -137,6 +139,40 @@ def delete_movie(movie_id: int, delete_files: bool = True, add_exclusion: bool =
     except requests.RequestException as e:
         logger.error(f"Radarr: failed to delete movie {movie_id}: {e}")
         return False
+
+
+_profile_cache: dict[int, dict] = {}
+
+
+def get_quality_profile(profile_id: int) -> dict:
+    if profile_id not in _profile_cache:
+        res = requests.get(f"{_base()}/api/v3/qualityprofile/{profile_id}", headers=_headers(), timeout=_TIMEOUT)
+        res.raise_for_status()
+        _profile_cache[profile_id] = res.json()
+    return _profile_cache[profile_id]
+
+
+def is_cutoff_met(arr_id: int, quality_profile_id: int, current_quality_id: int) -> bool:
+    profile = get_quality_profile(quality_profile_id)
+    cutoff_id = profile["cutoff"]
+    ordered = [
+        item["quality"]["id"]
+        for item in profile.get("items", [])
+        if item.get("allowed") and "quality" in item
+    ]
+    if current_quality_id not in ordered or cutoff_id not in ordered:
+        return True  # can't determine → assume met, do full transcode
+    return ordered.index(current_quality_id) >= ordered.index(cutoff_id)
+
+
+def has_pending_queue_item(movie_id: int) -> bool:
+    res = requests.get(
+        f"{_base()}/api/v3/queue",
+        params={"movieId": movie_id, "pageSize": 1},
+        headers=_headers(), timeout=_TIMEOUT,
+    )
+    res.raise_for_status()
+    return res.json().get("totalRecords", 0) > 0
 
 
 def unmonitor_movie(movie_id: int) -> bool:

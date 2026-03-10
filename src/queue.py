@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS {table} (
   meta       TEXT,
   status     TEXT NOT NULL DEFAULT 'pending',
   priority   INTEGER NOT NULL DEFAULT 1,
+  error      TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 )
@@ -38,10 +39,14 @@ class JobQueue:
             conn = self._connect()
             try:
                 conn.execute(_SCHEMA_TEMPLATE.format(table=self._table))
-                try:
-                    conn.execute(f"ALTER TABLE {self._table} ADD COLUMN priority INTEGER NOT NULL DEFAULT 1")
-                except Exception:
-                    pass  # column already exists
+                for migration in [
+                    f"ALTER TABLE {self._table} ADD COLUMN priority INTEGER NOT NULL DEFAULT 1",
+                    f"ALTER TABLE {self._table} ADD COLUMN error TEXT",
+                ]:
+                    try:
+                        conn.execute(migration)
+                    except Exception:
+                        pass  # column already exists
                 conn.execute(
                     f"UPDATE {self._table} SET status='pending', updated_at=CURRENT_TIMESTAMP WHERE status='processing'"
                 )
@@ -91,9 +96,9 @@ class JobQueue:
         self._set_status(job_id, "done", {"result": result} if result else None)
 
     def mark_failed(self, job_id: int, error: str | None = None):
-        self._set_status(job_id, "failed", {"error": error} if error else None)
+        self._set_status(job_id, "failed", error=error)
 
-    def _set_status(self, job_id: int, status: str, meta_update: dict | None = None):
+    def _set_status(self, job_id: int, status: str, meta_update: dict | None = None, error: str | None = None):
         with self._lock:
             conn = self._connect()
             try:
@@ -104,13 +109,13 @@ class JobQueue:
                     meta = json.loads((row["meta"] if row else None) or "{}")
                     meta.update(meta_update)
                     conn.execute(
-                        f"UPDATE {self._table} SET status=?, meta=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                        (status, json.dumps(meta), job_id),
+                        f"UPDATE {self._table} SET status=?, meta=?, error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                        (status, json.dumps(meta), error, job_id),
                     )
                 else:
                     conn.execute(
-                        f"UPDATE {self._table} SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                        (status, job_id),
+                        f"UPDATE {self._table} SET status=?, error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                        (status, error, job_id),
                     )
                 conn.commit()
             finally:

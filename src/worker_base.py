@@ -3,11 +3,11 @@ import logging
 import signal
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
+from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, wait
 from typing import Callable
 
 from src import config, file_op_lock
-from src.queue import JobQueue
+from src.queue import JobQueue, QueueModule
 
 logger = logging.getLogger(__name__)
 
@@ -18,11 +18,15 @@ class DeferJobError(Exception):
     """Raise from execute_fn to reset the job to pending instead of failing."""
 
 
+class SkipJobError(Exception):
+    """Raise from execute_fn to mark the job done/skipped without failing."""
+
+
 class Worker:
     def __init__(
         self,
         name: str,
-        queue: JobQueue,
+        queue: JobQueue | QueueModule,
         execute_fn: Callable,
         on_complete: Callable | None = None,
         cleanup_fn: Callable | None = None,
@@ -76,6 +80,10 @@ class Worker:
                 logger.info(f"[job {job_id}] Done: {path}")
                 if self._on_complete:
                     self._on_complete(job_id, meta)
+
+        except SkipJobError as e:
+            self._queue.mark_done(job_id, result=str(e))
+            logger.info(f"[job {job_id}] Skipped: {path} — {e}")
 
         except DeferJobError as e:
             self._queue.defer_job(job_id)

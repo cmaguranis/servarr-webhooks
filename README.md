@@ -186,9 +186,11 @@ Response:
 
 **Monitor progress:**
 ```bash
-curl "http://localhost:5001/transcode/jobs?status=processing"
-curl "http://localhost:5001/transcode/jobs?status=done"
-curl "http://localhost:5001/transcode/jobs?status=failed"
+curl "http://localhost:5001/transcode/jobs?status=processing" | jq -r '.jobs[] |"[\(.updated_at)] [ID: \(.id)] [\(.status | ascii_upcase)] \(.meta.arr_type) | \(.path | split("/") | .[-1])"'
+
+curl "http://localhost:5001/transcode/jobs?status=done" | jq -r '.jobs[] |"[\(.updated_at)] [ID: \(.id)] [\(.status | ascii_upcase)] \(.meta.arr_type) | \(.path | split("/") | .[-1])"'
+
+curl "http://localhost:5001/transcode/jobs?status=failed" | jq -r '.jobs[] |"[\(.updated_at)] [ID: \(.id)] [\(.status | ascii_upcase)] \(.meta.arr_type) | \(.path | split("/") | .[-1])"'
 ```
 
 **Clear jobs by status:**

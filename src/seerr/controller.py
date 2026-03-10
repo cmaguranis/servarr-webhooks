@@ -1,5 +1,6 @@
-import time
 import logging
+import time
+
 import requests
 from flask import Blueprint, request
 

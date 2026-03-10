@@ -1,14 +1,12 @@
 """Tests for src/managarr/worker.py — action dispatch and concurrency guards."""
 
-import threading
-import pytest
 from unittest.mock import MagicMock, patch
 
 from src.managarr.worker import (
     _add_to_collection,
-    _remove_from_collection,
     _plex_collection_lock,
     _radarr_lock,
+    _remove_from_collection,
     _sonarr_lock,
 )
 
@@ -146,3 +144,54 @@ class TestArrLocks:
             }, job_id=1, dry_run=False)
 
         assert lock_held == [True]
+
+    def test_delete_continuing_show_deletes_files_only(self):
+        """sonarr_continuing=True → delete_episode_files called, delete_series not called."""
+        with patch("src.managarr.worker.sonarr_service") as mock_sonarr:
+            mock_sonarr.get_series_by_tvdb.return_value = {"id": 42}
+
+            plex, _ = _plex()
+            from src.managarr.worker import _delete
+            _delete(plex, 1, {
+                "title": "Show",
+                "media_type": "show",
+                "tvdb_id": 100,
+                "sonarr_continuing": True,
+            }, job_id=1, dry_run=False)
+
+        mock_sonarr.delete_episode_files.assert_called_once_with(42)
+        mock_sonarr.delete_series.assert_not_called()
+
+    def test_delete_ended_show_deletes_series(self):
+        """sonarr_continuing=False → delete_series called, delete_episode_files not called."""
+        with patch("src.managarr.worker.sonarr_service") as mock_sonarr:
+            mock_sonarr.get_series_by_tvdb.return_value = {"id": 42}
+
+            plex, _ = _plex()
+            from src.managarr.worker import _delete
+            _delete(plex, 1, {
+                "title": "Show",
+                "media_type": "show",
+                "tvdb_id": 100,
+                "sonarr_continuing": False,
+            }, job_id=1, dry_run=False)
+
+        mock_sonarr.delete_series.assert_called_once_with(42, delete_files=True)
+        mock_sonarr.delete_episode_files.assert_not_called()
+
+    def test_delete_continuing_show_dry_run(self):
+        """dry_run=True → no Sonarr calls at all."""
+        with patch("src.managarr.worker.sonarr_service") as mock_sonarr:
+            mock_sonarr.get_series_by_tvdb.return_value = {"id": 42}
+
+            plex, _ = _plex()
+            from src.managarr.worker import _delete
+            _delete(plex, 1, {
+                "title": "Show",
+                "media_type": "show",
+                "tvdb_id": 100,
+                "sonarr_continuing": True,
+            }, job_id=1, dry_run=True)
+
+        mock_sonarr.delete_episode_files.assert_not_called()
+        mock_sonarr.delete_series.assert_not_called()

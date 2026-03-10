@@ -1,5 +1,7 @@
 import logging
-from flask import Blueprint, request, jsonify
+
+from flask import Blueprint, jsonify, request
+
 from src import radarr_service, sonarr_service
 
 logger = logging.getLogger(__name__)

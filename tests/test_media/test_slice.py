@@ -1,12 +1,13 @@
 """Unit tests for src/test_media/slice.py."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock, call
 
 from src.test_media.slice import (
+    build_output_path,
     get_duration,
     get_media_signature,
-    build_output_path,
     slice_file,
 )
 
@@ -162,7 +163,7 @@ class TestSliceFile:
         with self._patch_duration(120.0), \
              patch("src.test_media.slice.subprocess.run", return_value=mock_result), \
              patch("src.test_media.slice.os.makedirs"), \
-             patch("src.test_media.slice.os.path.exists", return_value=True) as mock_exists, \
+             patch("src.test_media.slice.os.path.exists", return_value=True), \
              patch("src.test_media.slice.os.remove") as mock_remove:
             with pytest.raises(RuntimeError):
                 slice_file("/src.mkv", "/out.mkv", start_sec=10)

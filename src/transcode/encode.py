@@ -1,14 +1,14 @@
+import logging
 import os
-import uuid
 import shlex
 import shutil
-import logging
-import threading
 import subprocess
+import threading
+import uuid
 
 from src import config
-from src.transcode.probe import get_stream_info, _TEXT_SUB_CODECS
-from src.transcode.audio import get_loudness_stats, _audio_needs, _build_audio_filter
+from src.transcode.audio import _audio_needs, _build_audio_filter, get_loudness_stats
+from src.transcode.probe import _TEXT_SUB_CODECS, get_stream_info
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +80,7 @@ def transcode_file(
     output_path: str | None = None,
     start_sec: int | None = None,
     slice_duration: int | None = None,
+    force_audio_only: bool = False,
 ):
     prefix = f"[job {job_id}] " if job_id is not None else ""
 
@@ -137,7 +138,7 @@ def transcode_file(
         needs_sub_strip = image_sub_count > 0
 
         codec_norm = (codec or "").lower().replace(" ", "")
-        needs_video = video_transcode_needed(codec, bitrate_kbps)
+        needs_video = video_transcode_needed(codec, bitrate_kbps) and not force_audio_only
         logger.info(f"{prefix}Needs video transcode: {needs_video} (codec={codec}, bitrate={bitrate_kbps}kbps)")
 
         duration = float(fmt.get("duration") or 0)

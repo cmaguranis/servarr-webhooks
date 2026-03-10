@@ -11,12 +11,12 @@ import random
 from flask import Blueprint, request
 
 from src import config, radarr_service, sonarr_service
+from src.job_routes import register_job_routes
 from src.lang import parse_lang
 from src.media_extensions import MEDIA_EXTENSIONS
+from src.test_media import queue as test_media_queue
 from src.test_media.queue import enqueue_job
 from src.test_media.slice import build_output_path, get_duration, get_media_signature
-from src.job_routes import register_job_routes
-from src.test_media import queue as test_media_queue
 
 logger = logging.getLogger(__name__)
 

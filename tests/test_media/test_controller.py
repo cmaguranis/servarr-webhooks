@@ -1,14 +1,13 @@
 """Integration tests for POST /media-test/generate and GET /media-test/jobs."""
 
-import json
-import pytest
 from contextlib import ExitStack
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
+import pytest
 from flask import Flask
 
 import src.test_media.controller as ctrl
 from src.test_media.controller import bp
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -1,5 +1,5 @@
-import os
 import configparser
+import os
 
 CONFIG_PATH = os.getenv("CONFIG_PATH", "/config/config.ini")
 

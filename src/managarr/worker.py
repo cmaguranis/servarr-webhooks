@@ -4,9 +4,9 @@ import threading
 from plexapi.exceptions import NotFound
 
 from src import config, radarr_service, sonarr_service
+from src.managarr import queue as plex_queue
 from src.managarr import schedule
 from src.managarr.service import _server
-from src.managarr import queue as plex_queue
 from src.worker_base import Worker
 
 logger = logging.getLogger(__name__)
@@ -134,12 +134,20 @@ def _delete(plex, plex_key: int, meta: dict, job_id: int, dry_run: bool):
         if not series:
             logger.warning(f"[job {job_id}] delete: '{title}' not found in Sonarr (already deleted?)")
             return
-        if dry_run:
-            logger.info(f"[job {job_id}] [dry_run] Would delete series '{title}' (sonarr_id={series['id']})")
+        if meta.get("sonarr_continuing"):
+            if dry_run:
+                logger.info(f"[job {job_id}] [dry_run] Would delete episode files for '{title}' (sonarr_id={series['id']}, monitoring kept)")
+            else:
+                with _sonarr_lock:
+                    sonarr_service.delete_episode_files(series["id"])
+                logger.info(f"[job {job_id}] Deleted episode files for '{title}' (sonarr_id={series['id']}, monitoring kept)")
         else:
-            with _sonarr_lock:
-                sonarr_service.delete_series(series["id"], delete_files=True)
-            logger.info(f"[job {job_id}] Deleted series '{title}' (sonarr_id={series['id']})")
+            if dry_run:
+                logger.info(f"[job {job_id}] [dry_run] Would delete series '{title}' (sonarr_id={series['id']})")
+            else:
+                with _sonarr_lock:
+                    sonarr_service.delete_series(series["id"], delete_files=True)
+                logger.info(f"[job {job_id}] Deleted series '{title}' (sonarr_id={series['id']})")
     else:
         raise ValueError(f"delete: unknown media_type {meta.get('media_type')!r}")
 

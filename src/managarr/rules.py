@@ -1,11 +1,15 @@
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from src import config
+from src import config, sonarr_service
+
 from .db import PlexMediaDB
 from .service import MovieMetadata, ShowMetadata, get_movies, get_shows
+
+logger = logging.getLogger(__name__)
 
 
 class Action(str, Enum):
@@ -149,9 +153,20 @@ def run_cleanup(
     promote: list[RuleResult] = []
     do_nothing = 0
 
+    # Build tvdb_id → Sonarr status map once for all show lookups
+    sonarr_status_map: dict[int, str] = {}
+    try:
+        for s in sonarr_service.get_all_series():
+            tvdb = s.get("tvdbId")
+            if tvdb:
+                sonarr_status_map[tvdb] = s.get("status", "")
+    except Exception as e:
+        logger.warning(f"Could not fetch Sonarr series for status check: {e}")
+
     def _apply(item: MovieMetadata | ShowMetadata, record: dict | None):
         nonlocal do_nothing
         current = Action(record["state"]) if record else None
+        sonarr_status = sonarr_status_map.get(item.tvdb_id) if isinstance(item, ShowMetadata) and item.tvdb_id else None
         new = _resolve(item, record, now)
         result = _result(item, new)
 
@@ -177,6 +192,7 @@ def run_cleanup(
                     "location": item.location,
                     "tmdb_id": result.tmdb_id,
                     "tvdb_id": result.tvdb_id,
+                    "sonarr_continuing": sonarr_status == "continuing" if isinstance(item, ShowMetadata) else None,
                 })
 
         if new == Action.ADD_TO_COLLECTION:

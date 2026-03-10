@@ -1,13 +1,13 @@
 """Integration tests for the /transcode-webhook and /transcode/jobs endpoints."""
 
 import json
-import pytest
 from contextlib import ExitStack
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
+import pytest
 from flask import Flask
 
 from src.transcode.controller import bp
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -276,7 +276,7 @@ class TestDryRun:
         assert meta["dry_run"] is False
 
     def test_dry_run_absent_defaults_false(self, client, mocks):
-        rv = _post(client, RADARR_PAYLOAD)
+        _post(client, RADARR_PAYLOAD)
         _, meta = mocks["enqueue"].call_args.args
         assert meta["dry_run"] is False
 

@@ -7,17 +7,18 @@ exposes job queue and schedule management endpoints.
 import json
 import logging
 import os
+
 from flask import Blueprint, request
 
 from src import config, radarr_service, sonarr_service
+from src.job_routes import register_job_routes, register_schedule_routes
 from src.lang import parse_lang as _parse_lang
 from src.media_extensions import MEDIA_EXTENSIONS
 from src.test_media.queue import get_job_by_path as get_media_test_job
-from src.transcode.queue import enqueue_job
-from src.transcode.probe import get_stream_info
-from src.transcode import schedule
-from src.job_routes import register_job_routes, register_schedule_routes
 from src.transcode import queue as transcode_queue
+from src.transcode import schedule
+from src.transcode.probe import get_stream_info
+from src.transcode.queue import enqueue_job
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,8 @@ def transcode_webhook():
         "has_51": (media_info.get("audioChannels") or 0) > 5,
         "arr_type": arr_type,
         "arr_id": media_obj.get("id"),
+        "quality_profile_id": media_obj.get("qualityProfileId"),
+        "current_quality_id": (file_info.get("quality") or {}).get("quality", {}).get("id"),
         "dry_run": request.args.get("dry_run", "").lower() == "true",
         "media_test": media_test,
         "start_sec": int(start_sec_raw) if start_sec_raw else None,

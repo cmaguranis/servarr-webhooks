@@ -10,15 +10,14 @@ import logging
 
 from flask import Blueprint
 
+from src import config
+from src.job_routes import register_job_routes, register_schedule_routes
 from src.managarr import queue as plex_queue
 from src.managarr import schedule
 from src.managarr.db import PlexMediaDB
 from src.managarr.rules import run_cleanup
-from src.job_routes import register_job_routes, register_schedule_routes
 
 logger = logging.getLogger(__name__)
-
-from src import config
 
 _MEDIA_DB_PATH = config.PLEX_MEDIA_DB()
 

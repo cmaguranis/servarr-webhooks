@@ -3,11 +3,8 @@
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from src.managarr.rules import Action, RuleResult, _resolve, process_rules, _collection_days
-from src.managarr.service import MovieMetadata, ShowMetadata, SeasonMetadata
-
+from src.managarr.rules import Action, _collection_days, _resolve, process_rules
+from src.managarr.service import MovieMetadata, ShowMetadata
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -134,6 +131,37 @@ def test_works_for_shows_too():
 
 
 # ---------------------------------------------------------------------------
+# process_rules — continuing show
+# ---------------------------------------------------------------------------
+
+def test_continuing_show_watched_unrated_returns_add_to_collection():
+    """Continuing shows are no longer exempt — they age into ADD_TO_COLLECTION like any other."""
+    item = _show(
+        user_rating=None,
+        view_count=1,
+        last_viewed=datetime.utcnow() - timedelta(days=15),
+        date_added=datetime.utcnow() - timedelta(days=31),
+    )
+    assert process_rules(item).action == Action.ADD_TO_COLLECTION
+
+
+def test_ended_show_watched_unrated_returns_add_to_collection():
+    item = _show(
+        user_rating=None,
+        view_count=1,
+        last_viewed=datetime.utcnow() - timedelta(days=15),
+        date_added=datetime.utcnow() - timedelta(days=31),
+    )
+    assert process_rules(item).action == Action.ADD_TO_COLLECTION
+
+
+def test_show_rated_low_deletes():
+    """Explicit low rating triggers delete regardless of show status."""
+    item = _show(user_rating=4, view_count=1)
+    assert process_rules(item).action == Action.DELETE
+
+
+# ---------------------------------------------------------------------------
 # _resolve — state machine transitions
 # ---------------------------------------------------------------------------
 
@@ -194,8 +222,74 @@ def test_no_db_write_when_state_unchanged():
     db.get_states.return_value = {item.plex_key: record}
 
     with patch("src.managarr.rules.get_movies", return_value=[item]), \
-         patch("src.managarr.rules.get_shows", return_value=[]):
+         patch("src.managarr.rules.get_shows", return_value=[]), \
+         patch("src.managarr.rules.sonarr_service.get_all_series", return_value=[]):
         from src.managarr.rules import run_cleanup
         run_cleanup(db=db)
 
     db.upsert_state.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# sonarr_continuing in enqueued meta
+# ---------------------------------------------------------------------------
+
+def _run_cleanup_for_show(show: ShowMetadata, sonarr_series: list, existing_state: dict | None = None):
+    """Run cleanup for a single show and return the enqueue_job call args list."""
+    db = MagicMock()
+    db.get_states.return_value = {show.plex_key: existing_state} if existing_state else {}
+
+    enqueue_calls = []
+
+    def fake_enqueue(path, meta):
+        enqueue_calls.append(meta)
+
+    with patch("src.managarr.rules.get_movies", return_value=[]), \
+         patch("src.managarr.rules.get_shows", return_value=[show]), \
+         patch("src.managarr.rules.sonarr_service.get_all_series", return_value=sonarr_series), \
+         patch("src.managarr.queue.enqueue_job", side_effect=fake_enqueue):
+        from src.managarr.rules import run_cleanup
+        run_cleanup(db=db)
+
+    return enqueue_calls
+
+
+def test_sonarr_continuing_true_in_meta_when_continuing():
+    """When a show transitions to DELETE and Sonarr reports it continuing, meta has sonarr_continuing=True."""
+    show = ShowMetadata(
+        title="Ongoing Show", plex_key=10, tvdb_id=999,
+        user_rating=None, view_count=1,
+        last_viewed=datetime.utcnow() - timedelta(days=15),
+        date_added=datetime.utcnow() - timedelta(days=31),
+        location="/media/show", seasons=[], total_episodes=0,
+    )
+    # Existing state: ADD_TO_COLLECTION set 31 days ago → _resolve will fire DELETE
+    with patch("src.managarr.rules._collection_days", return_value=30):
+        calls = _run_cleanup_for_show(
+            show,
+            sonarr_series=[{"tvdbId": 999, "status": "continuing"}],
+            existing_state=_record("add_to_collection", days_ago=31),
+        )
+
+    assert len(calls) == 1
+    assert calls[0]["sonarr_continuing"] is True
+
+
+def test_sonarr_continuing_false_in_meta_when_ended():
+    """When a show transitions to DELETE and Sonarr reports it ended, meta has sonarr_continuing=False."""
+    show = ShowMetadata(
+        title="Finished Show", plex_key=11, tvdb_id=888,
+        user_rating=None, view_count=1,
+        last_viewed=datetime.utcnow() - timedelta(days=15),
+        date_added=datetime.utcnow() - timedelta(days=31),
+        location="/media/show", seasons=[], total_episodes=0,
+    )
+    with patch("src.managarr.rules._collection_days", return_value=30):
+        calls = _run_cleanup_for_show(
+            show,
+            sonarr_series=[{"tvdbId": 888, "status": "ended"}],
+            existing_state=_record("add_to_collection", days_ago=31),
+        )
+
+    assert len(calls) == 1
+    assert calls[0]["sonarr_continuing"] is False

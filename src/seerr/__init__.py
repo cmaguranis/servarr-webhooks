@@ -1,1 +1,1 @@
-from .controller import bp
+from .controller import bp as bp

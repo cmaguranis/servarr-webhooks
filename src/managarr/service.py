@@ -1,11 +1,11 @@
 import logging
-from typing import Iterator, Optional
 from datetime import datetime
-
-from src import config
+from typing import Iterator, Optional
 
 from plexapi.server import PlexServer
 from pydantic import BaseModel
+
+from src import config
 
 logger = logging.getLogger(__name__)
 

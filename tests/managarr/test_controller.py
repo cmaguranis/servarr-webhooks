@@ -1,14 +1,12 @@
 """Tests for src/managarr/controller.py — /managarr/cleanup/* API endpoints."""
 
-import json
-import pytest
 from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
+
+import pytest
 from flask import Flask
 
 from src.managarr.controller import bp
-from src.managarr import controller as managarr_controller
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -45,7 +43,7 @@ def job_mocks():
 
 class TestRunCleanup:
     def _mock_run_cleanup(self, add=0, delete=0, promote=0, do_nothing=0):
-        from src.managarr.rules import RuleResult, Action
+        from src.managarr.rules import Action, RuleResult
         def _result(n, action):
             return [
                 RuleResult(action=action, media_type="movie", plex_key=i, title=f"T{i}")
@@ -104,21 +102,21 @@ class TestRunCleanup:
 class TestScheduleRoutes:
     def test_get_schedule_returns_enabled_by_default(self, client, tmp_path):
         path = str(tmp_path / "schedule.json")
-        with patch("src.managarr.schedule._SCHEDULE_PATH", path):
+        with patch("src.config.PLEX_SCHEDULE_PATH", return_value=path):
             resp = client.get("/managarr/cleanup/schedule")
         assert resp.status_code == 200
         assert resp.get_json() == {"enabled": True}
 
     def test_post_schedule_disables(self, client, tmp_path):
         path = str(tmp_path / "schedule.json")
-        with patch("src.managarr.schedule._SCHEDULE_PATH", path):
+        with patch("src.config.PLEX_SCHEDULE_PATH", return_value=path):
             resp = client.post("/managarr/cleanup/schedule?enabled=false")
         assert resp.status_code == 200
         assert resp.get_json() == {"enabled": False}
 
     def test_post_schedule_enables(self, client, tmp_path):
         path = str(tmp_path / "schedule.json")
-        with patch("src.managarr.schedule._SCHEDULE_PATH", path):
+        with patch("src.config.PLEX_SCHEDULE_PATH", return_value=path):
             client.post("/managarr/cleanup/schedule?enabled=false")
             resp = client.post("/managarr/cleanup/schedule?enabled=true")
         assert resp.status_code == 200

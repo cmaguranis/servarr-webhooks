@@ -1,14 +1,14 @@
+import logging
 import os
 import random
-import logging
 
 from src import config, radarr_service, sonarr_service
 from src.test_media.slice import build_output_path
-from src.transcode.queue import _queue, cleanup_jobs
+from src.transcode import schedule
 from src.transcode.encode import transcode_file
 from src.transcode.probe import get_stream_info
-from src.transcode import schedule
-from src.worker_base import Worker
+from src.transcode.queue import _queue, cleanup_jobs
+from src.worker_base import SkipJobError, Worker
 
 _SLICE_DURATION = 30
 
@@ -34,6 +34,23 @@ def _execute(path: str, meta: dict, job_id: int, dry_run: bool):
         output_path = build_output_path(path, start_sec, config.TEST_MEDIA_OUTPUT_DIR())
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         logger.info(f"[job {job_id}] media_test mode: slicing {slice_duration}s from {start_sec}s → {output_path}")
+
+    arr_id = meta.get("arr_id")
+    arr_type = meta.get("arr_type")
+    if arr_id and arr_type and not meta.get("media_test"):
+        svc = radarr_service if arr_type == "radarr" else sonarr_service
+        try:
+            if svc.has_pending_queue_item(arr_id):
+                raise SkipJobError("upgrade actively downloading — skipping transcode")
+            quality_profile_id = meta.get("quality_profile_id")
+            current_quality_id = meta.get("current_quality_id")
+            if quality_profile_id and current_quality_id:
+                if not svc.is_cutoff_met(arr_id, quality_profile_id, current_quality_id):
+                    raise SkipJobError("cutoff not met — skipping transcode until upgraded")
+        except SkipJobError:
+            raise
+        except Exception as e:
+            logger.warning(f"[job {job_id}] Could not check upgrade status: {e}")
 
     transcode_file(
         path,
@@ -73,7 +90,11 @@ _worker = Worker(
     cleanup_fn=cleanup_jobs,
     worker_count=TRANSCODE_WORKERS,
     paused_fn=lambda: not schedule.is_enabled(),
-    lock_path_fn=lambda path, meta: path,
+    lock_path_fn=lambda path, meta: (
+        f"{meta['arr_type']}:{meta['arr_id']}"
+        if meta.get('arr_type') and meta.get('arr_id')
+        else path
+    ),
 )
 
 

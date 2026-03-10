@@ -1,11 +1,12 @@
 """Unit tests for the generic Worker class (_run logic)."""
 
 import json
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, call
 
 from src import file_op_lock
-from src.worker_base import Worker, DeferJobError
+from src.worker_base import DeferJobError, Worker
 
 
 def _make_worker(execute_fn=None, on_complete=None, cleanup_fn=None, paused_fn=None, lock_path_fn=None):
@@ -167,12 +168,10 @@ class TestPausedFn:
 
     def test_loop_skips_claim_when_paused(self):
         """When paused_fn returns True, claim_pending_jobs must not be called."""
-        import threading
 
         paused_fn = MagicMock(return_value=True)
         worker, queue = _make_worker(paused_fn=paused_fn)
 
-        stop = threading.Event()
         original_wait = worker._stop_flag.wait
 
         call_count = 0
@@ -193,7 +192,6 @@ class TestPausedFn:
 
     def test_loop_claims_when_not_paused(self):
         """When paused_fn returns False, claim_pending_jobs is called."""
-        import threading
 
         paused_fn = MagicMock(return_value=False)
         worker, queue = _make_worker(paused_fn=paused_fn)

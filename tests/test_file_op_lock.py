@@ -1,6 +1,7 @@
 """Tests for src/file_op_lock.py."""
 
 import pytest
+
 from src import file_op_lock
 
 

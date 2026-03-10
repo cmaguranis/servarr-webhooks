@@ -1,9 +1,10 @@
 """Tests for transcode job priority computation."""
 
-import pytest
 from unittest.mock import patch
 
-from src.transcode.encode import video_transcode_needed, _HEVC_BITRATE_THRESHOLD_KBPS
+import pytest
+
+from src.transcode.encode import _HEVC_BITRATE_THRESHOLD_KBPS, video_transcode_needed
 from src.transcode.queue import _compute_priority
 
 _THRESHOLD = _HEVC_BITRATE_THRESHOLD_KBPS  # 440_000 kbps (55 MB/s)

@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+
 import pytest
 
 from src.queue import JobQueue
