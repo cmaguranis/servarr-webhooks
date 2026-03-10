@@ -1,12 +1,12 @@
-"""Unit tests for src/plex/rules.py — process_rules and _resolve state machine."""
+"""Unit tests for src/managarr/rules.py — process_rules and _resolve state machine."""
 
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.plex.rules import Action, RuleResult, _resolve, process_rules, _collection_days
-from src.plex.service import MovieMetadata, ShowMetadata, SeasonMetadata
+from src.managarr.rules import Action, RuleResult, _resolve, process_rules, _collection_days
+from src.managarr.service import MovieMetadata, ShowMetadata, SeasonMetadata
 
 
 # ---------------------------------------------------------------------------
@@ -193,9 +193,9 @@ def test_no_db_write_when_state_unchanged():
     db = MagicMock()
     db.get_states.return_value = {item.plex_key: record}
 
-    with patch("src.plex.rules.get_movies", return_value=[item]), \
-         patch("src.plex.rules.get_shows", return_value=[]):
-        from src.plex.rules import run_cleanup
+    with patch("src.managarr.rules.get_movies", return_value=[item]), \
+         patch("src.managarr.rules.get_shows", return_value=[]):
+        from src.managarr.rules import run_cleanup
         run_cleanup(db=db)
 
     db.upsert_state.assert_not_called()

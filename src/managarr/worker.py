@@ -4,9 +4,9 @@ import os
 from plexapi.exceptions import NotFound
 
 from src import config, radarr_service, sonarr_service
-from src.plex import schedule
-from src.plex.service import _server
-from src.plex import queue as plex_queue
+from src.managarr import schedule
+from src.managarr.service import _server
+from src.managarr import queue as plex_queue
 from src.worker_base import Worker
 
 logger = logging.getLogger(__name__)

@@ -14,9 +14,9 @@ from datetime import datetime
 # Allow importing from src/ when run as a standalone script
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.plex.db import PlexMediaDB
-from src.plex.rules import Action, RuleResult, run_cleanup
-from src.plex import queue as plex_queue
+from src.managarr.db import PlexMediaDB
+from src.managarr.rules import Action, RuleResult, run_cleanup
+from src.managarr import queue as plex_queue
 
 
 RESET   = '\033[0m'

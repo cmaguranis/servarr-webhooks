@@ -297,7 +297,7 @@ curl "http://192.168.1.67:5001/media-test/jobs?status=done"
 
 ---
 
-## Plex Cleanup
+## Managarr Cleanup
 
 Automatically categorises Plex media against a set of rules and enqueues cleanup actions (add to watchlist collection, promote from cache to main storage, or delete via Radarr/Sonarr). A background worker processes jobs continuously; the enabled/disabled flag lets you pause it without stopping the service.
 
@@ -316,7 +316,7 @@ Automatically categorises Plex media against a set of rules and enqueues cleanup
 
 **Run the rules pass** (fetches all Plex media, applies rules, enqueues jobs):
 ```bash
-curl -X POST http://localhost:5001/plex/cleanup/rules
+curl -X POST http://localhost:5001/managarr/cleanup/rules
 ```
 
 Response:
@@ -332,26 +332,26 @@ Response:
 **Check / toggle the worker schedule:**
 ```bash
 # Check current state
-curl http://localhost:5001/plex/cleanup/schedule
+curl http://localhost:5001/managarr/cleanup/schedule
 
 # Pause the worker (stops claiming new jobs)
-curl -X POST "http://localhost:5001/plex/cleanup/schedule?enabled=false"
+curl -X POST "http://localhost:5001/managarr/cleanup/schedule?enabled=false"
 
 # Resume the worker
-curl -X POST "http://localhost:5001/plex/cleanup/schedule?enabled=true"
+curl -X POST "http://localhost:5001/managarr/cleanup/schedule?enabled=true"
 ```
 
 **Manage jobs:**
 ```bash
 # List all jobs (optionally filter by status: pending, processing, done, failed)
-curl http://localhost:5001/plex/cleanup/jobs
-curl "http://localhost:5001/plex/cleanup/jobs?status=failed"
+curl http://localhost:5001/managarr/cleanup/jobs
+curl "http://localhost:5001/managarr/cleanup/jobs?status=failed"
 
 # Clear jobs by status
-curl -X DELETE "http://localhost:5001/plex/cleanup/jobs?status=done"
+curl -X DELETE "http://localhost:5001/managarr/cleanup/jobs?status=done"
 
 # Requeue a failed job
-curl -X POST http://localhost:5001/plex/cleanup/jobs/42/retry
+curl -X POST http://localhost:5001/managarr/cleanup/jobs/42/retry
 ```
 
 ---

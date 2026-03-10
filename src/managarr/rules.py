@@ -141,7 +141,7 @@ def run_cleanup(
     Movies are processed in batches of MOVIE_BATCH; shows one at a time.
     """
     # Import here to avoid circular import (queue imports nothing from rules)
-    from src.plex import queue as plex_queue
+    from src.managarr import queue as plex_queue
 
     now = _now()
     add_to_collection: list[RuleResult] = []
