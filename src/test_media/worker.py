@@ -1,13 +1,13 @@
-import os
 import logging
 
+from src import config
 from src.test_media.queue import _queue
 from src.test_media.slice import slice_file
 from src.worker_base import Worker
 
 logger = logging.getLogger(__name__)
 
-MEDIA_TEST_WORKERS = int(os.getenv("MEDIA_TEST_WORKERS", "1"))
+MEDIA_TEST_WORKERS = config.TEST_MEDIA_WORKER_COUNT()
 
 
 def _execute(path: str, meta: dict, job_id: int, dry_run: bool):

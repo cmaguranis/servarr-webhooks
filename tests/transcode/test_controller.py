@@ -28,7 +28,7 @@ def mocks():
     with ExitStack() as stack:
         yield {
             "get_list": stack.enter_context(
-                patch("src.transcode.controller.config.get_list", return_value=[])
+                patch("src.transcode.controller.config.TRANSCODE_SKIP_GROUPS", return_value=[])
             ),
             "radarr_tag": stack.enter_context(
                 patch("src.transcode.controller.radarr_service.get_or_create_tag", return_value=99)

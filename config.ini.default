@@ -1,10 +1,45 @@
+[worker]
+poll_interval = 120
+
 [transcode]
 skip_groups = yify, yts, judas
 cleanup_done_days = 7
 cleanup_failed_days = 21
+worker_count = 1
+hevc_icq_quality = 23
+max_concurrent_qsv_sessions = 2
+temp_primary = /dev/shm
+temp_fallback = /transcode-temp
+db = /config/data/transcode_queue.db
+schedule_path = /config/data/transcode_schedule.json
 
 [plex]
+baseurl =
+token =
 collection_days = 30
 movie_batch = 100
 collection_name = Cleanup Queue
 worker_count = 2
+media_db = /config/data/plex_media.db
+cleanup_db = /config/data/plex_cleanup.db
+schedule_path = /config/data/plex_cleanup_schedule.json
+
+[test_media]
+worker_count = 1
+cache_dir = /data/media_cache
+output_dir = /data/media_test
+media_dir = /media
+db = /config/data/media_test_queue.db
+
+[seerr]
+baseurl =
+api_key =
+root_folder_anime_movies =
+
+[radarr]
+baseurl =
+api_key =
+
+[sonarr]
+baseurl =
+api_key =

@@ -4,10 +4,11 @@ import json
 import pytest
 from unittest.mock import MagicMock, call
 
-from src.worker_base import Worker
+from src import file_op_lock
+from src.worker_base import Worker, DeferJobError
 
 
-def _make_worker(execute_fn=None, on_complete=None, cleanup_fn=None, paused_fn=None):
+def _make_worker(execute_fn=None, on_complete=None, cleanup_fn=None, paused_fn=None, lock_path_fn=None):
     """Build a Worker with a mock queue, not started."""
     queue = MagicMock()
     worker = Worker(
@@ -18,6 +19,7 @@ def _make_worker(execute_fn=None, on_complete=None, cleanup_fn=None, paused_fn=N
         cleanup_fn=cleanup_fn,
         worker_count=1,
         paused_fn=paused_fn,
+        lock_path_fn=lock_path_fn,
     )
     return worker, queue
 
@@ -213,3 +215,84 @@ class TestPausedFn:
         worker._loop()
 
         queue.claim_pending_jobs.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# lock_path_fn / file_op_lock integration
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _clear_file_op_lock():
+    file_op_lock._active.clear()
+    yield
+    file_op_lock._active.clear()
+
+
+class TestFileLock:
+    def test_defers_when_file_lock_held(self):
+        """Job is deferred (not executed) when its file path is already locked."""
+        file_op_lock._active.add("/media/foo.mkv")
+        execute_fn = MagicMock()
+        worker, queue = _make_worker(
+            execute_fn=execute_fn,
+            lock_path_fn=lambda path, meta: path,
+        )
+        worker._run(_make_job(path="/media/foo.mkv"))
+
+        execute_fn.assert_not_called()
+        queue.defer_job.assert_called_once_with(1)
+        queue.mark_done.assert_not_called()
+        queue.mark_failed.assert_not_called()
+
+    def test_proceeds_when_file_lock_free(self):
+        execute_fn = MagicMock()
+        worker, queue = _make_worker(
+            execute_fn=execute_fn,
+            lock_path_fn=lambda path, meta: path,
+        )
+        worker._run(_make_job(path="/media/foo.mkv"))
+
+        execute_fn.assert_called_once()
+        queue.mark_done.assert_called_once()
+
+    def test_lock_released_on_success(self):
+        worker, queue = _make_worker(lock_path_fn=lambda path, meta: path)
+        worker._run(_make_job(path="/media/foo.mkv"))
+        assert "/media/foo.mkv" not in file_op_lock._active
+
+    def test_lock_released_on_failure(self):
+        execute_fn = MagicMock(side_effect=RuntimeError("boom"))
+        worker, queue = _make_worker(
+            execute_fn=execute_fn,
+            lock_path_fn=lambda path, meta: path,
+        )
+        worker._run(_make_job(path="/media/foo.mkv"))
+        assert "/media/foo.mkv" not in file_op_lock._active
+
+    def test_no_lock_when_lock_path_fn_returns_none(self):
+        execute_fn = MagicMock()
+        worker, queue = _make_worker(
+            execute_fn=execute_fn,
+            lock_path_fn=lambda path, meta: None,
+        )
+        worker._run(_make_job(path="/media/foo.mkv"))
+
+        execute_fn.assert_called_once()
+        assert len(file_op_lock._active) == 0
+
+    def test_no_lock_when_no_lock_path_fn(self):
+        execute_fn = MagicMock()
+        worker, queue = _make_worker(execute_fn=execute_fn)
+        worker._run(_make_job(path="/media/foo.mkv"))
+
+        execute_fn.assert_called_once()
+        assert len(file_op_lock._active) == 0
+
+    def test_defer_job_error_resets_to_pending(self):
+        execute_fn = MagicMock(side_effect=DeferJobError("not ready"))
+        worker, queue = _make_worker(execute_fn=execute_fn)
+        worker._run(_make_job())
+
+        queue.defer_job.assert_called_once_with(1)
+        queue.mark_failed.assert_not_called()
+        queue.mark_done.assert_not_called()

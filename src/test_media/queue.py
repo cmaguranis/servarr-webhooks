@@ -1,9 +1,8 @@
-import os
-
+from src import config
 from src.queue import QueueModule
 
 _queue = QueueModule(
-    db_path=os.getenv("MEDIA_TEST_DB", "/config/data/media_test_queue.db"),
+    db_path=config.MEDIA_TEST_DB(),
     table="media_test_jobs",
 )
 

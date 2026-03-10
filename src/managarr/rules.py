@@ -31,11 +31,11 @@ class RuleResult:
 
 
 def _collection_days() -> int:
-    return int(config.get("plex", "collection_days", fallback="30"))
+    return config.PLEX_COLLECTION_DAYS()
 
 
 def _movie_batch() -> int:
-    return int(config.get("plex", "movie_batch", fallback="100"))
+    return config.PLEX_MOVIE_BATCH()
 
 _ALL = set(Action)
 

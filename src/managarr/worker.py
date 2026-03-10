@@ -1,5 +1,5 @@
 import logging
-import os
+import threading
 
 from plexapi.exceptions import NotFound
 
@@ -11,11 +11,20 @@ from src.worker_base import Worker
 
 logger = logging.getLogger(__name__)
 
-PLEX_CLEANUP_WORKERS = int(os.getenv("PLEX_CLEANUP_WORKERS", "2"))
+PLEX_CLEANUP_WORKERS = config.PLEX_WORKER_COUNT()
+
+# Serialise all Plex collection mutations — concurrent addItems/removeItems
+# calls to the same collection silently drop writes.
+_plex_collection_lock = threading.Lock()
+
+# Serialise write calls to each Arr service — both use SQLite internally
+# and concurrent write-heavy requests cause SQLITE_BUSY contention.
+_radarr_lock = threading.Lock()
+_sonarr_lock = threading.Lock()
 
 
 def _collection_name() -> str:
-    return config.get("plex", "collection_name", fallback="Cleanup Queue")
+    return config.PLEX_COLLECTION_NAME()
 
 
 def _remove_from_collection(item, dry_run: bool, job_id: int) -> bool:
@@ -26,7 +35,8 @@ def _remove_from_collection(item, dry_run: bool, job_id: int) -> bool:
             if dry_run:
                 logger.info(f"[job {job_id}] [dry_run] Would remove '{item.title}' from '{name}'")
             else:
-                item.section().collection(name).removeItems([item])
+                with _plex_collection_lock:
+                    item.section().collection(name).removeItems([item])
                 logger.info(f"[job {job_id}] Removed '{item.title}' from '{name}'")
             return True
     return False
@@ -50,10 +60,11 @@ def _add_to_collection(plex, plex_key: int, meta: dict, job_id: int, dry_run: bo
             logger.info(f"[job {job_id}] '{item.title}' already in '{name}'")
             return
     section = item.section()
-    try:
-        section.collection(name).addItems([item])
-    except NotFound:
-        section.createCollection(name, items=[item])
+    with _plex_collection_lock:
+        try:
+            section.collection(name).addItems([item])
+        except NotFound:
+            section.createCollection(name, items=[item])
     logger.info(f"[job {job_id}] Added '{item.title}' to '{name}'")
 
 
@@ -74,7 +85,8 @@ def _promote(plex, plex_key: int, meta: dict, job_id: int, dry_run: bool):
         if dry_run:
             logger.info(f"[job {job_id}] [dry_run] Would promote movie '{title}' → {new_root}")
         else:
-            radarr_service.update_movie_path(tmdb_id, new_root)
+            with _radarr_lock:
+                radarr_service.update_movie_path(tmdb_id, new_root)
             logger.info(f"[job {job_id}] Promoted movie '{title}' → {new_root}")
     elif meta.get("media_type") == "show":
         tvdb_id = meta.get("tvdb_id")
@@ -88,7 +100,8 @@ def _promote(plex, plex_key: int, meta: dict, job_id: int, dry_run: bool):
         if dry_run:
             logger.info(f"[job {job_id}] [dry_run] Would promote show '{title}' → {new_root}")
         else:
-            sonarr_service.update_series({**series, "rootFolderPath": new_root, "path": new_path})
+            with _sonarr_lock:
+                sonarr_service.update_series({**series, "rootFolderPath": new_root, "path": new_path})
             logger.info(f"[job {job_id}] Promoted show '{title}' → {new_root}")
     else:
         raise ValueError(f"promote: unknown media_type {meta.get('media_type')!r}")
@@ -110,7 +123,8 @@ def _delete(plex, plex_key: int, meta: dict, job_id: int, dry_run: bool):
         if dry_run:
             logger.info(f"[job {job_id}] [dry_run] Would delete movie '{title}' (radarr_id={movie['id']})")
         else:
-            radarr_service.delete_movie(movie["id"], delete_files=True)
+            with _radarr_lock:
+                radarr_service.delete_movie(movie["id"], delete_files=True)
             logger.info(f"[job {job_id}] Deleted movie '{title}' (radarr_id={movie['id']})")
     elif meta.get("media_type") == "show":
         tvdb_id = meta.get("tvdb_id")
@@ -123,7 +137,8 @@ def _delete(plex, plex_key: int, meta: dict, job_id: int, dry_run: bool):
         if dry_run:
             logger.info(f"[job {job_id}] [dry_run] Would delete series '{title}' (sonarr_id={series['id']})")
         else:
-            sonarr_service.delete_series(series["id"], delete_files=True)
+            with _sonarr_lock:
+                sonarr_service.delete_series(series["id"], delete_files=True)
             logger.info(f"[job {job_id}] Deleted series '{title}' (sonarr_id={series['id']})")
     else:
         raise ValueError(f"delete: unknown media_type {meta.get('media_type')!r}")
@@ -158,5 +173,6 @@ def start():
         execute_fn=_execute,
         worker_count=PLEX_CLEANUP_WORKERS,
         paused_fn=lambda: not schedule.is_enabled(),
+        lock_path_fn=lambda path, meta: meta.get("location"),
     )
     worker.start()

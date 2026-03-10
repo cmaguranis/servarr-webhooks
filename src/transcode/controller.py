@@ -43,7 +43,7 @@ def transcode_webhook():
     arr_type = "radarr" if is_radarr else "sonarr"
 
     # Skip trusted release groups (hot-reloaded from config.ini)
-    skip_groups = set(config.get_list("transcode", "skip_groups"))
+    skip_groups = set(config.TRANSCODE_SKIP_GROUPS())
     release_group = (file_info.get("releaseGroup") or "").strip()
     if release_group.lower() in skip_groups:
         logger.info(f"Skipping trusted group '{release_group}': {file_info.get('path')}")

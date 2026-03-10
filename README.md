@@ -16,6 +16,8 @@ On first run, `/config/config.ini` is created automatically from the built-in de
 
 ### Environment variables
 
+Required (no defaults — must be set):
+
 | Variable | Description |
 |---|---|
 | `SEERR_BASEURL` | Overseerr base URL (e.g. `http://192.168.1.x:5055`) |
@@ -24,31 +26,54 @@ On first run, `/config/config.ini` is created automatically from the built-in de
 | `RADARR_API_KEY` | Radarr API key |
 | `SONARR_BASEURL` | Sonarr base URL (e.g. `http://192.168.1.x:8989`) |
 | `SONARR_API_KEY` | Sonarr API key |
-| `SONARR_TARGET_QUALITY_PROFILE_ID` | Quality profile ID to apply after first episode download |
-| `ROOT_FOLDER_ANIME_MOVIES` | Root folder path for anime movies |
-| `TRANSCODE_WORKERS` | Parallel transcode jobs (default: `1`) |
 | `PLEX_BASEURL` | Plex server URL (e.g. `http://192.168.1.x:32400`) |
 | `PLEX_TOKEN` | Plex authentication token |
-| `PLEX_CLEANUP_WORKERS` | Parallel plex cleanup jobs (default: `2`) |
-| `PLEX_CLEANUP_DB` | Path to cleanup job queue DB (default: `/config/data/plex_cleanup.db`) |
-| `PLEX_MEDIA_DB` | Path to media state tracking DB (default: `/config/data/plex_media.db`) |
-| `PLEX_SCHEDULE_PATH` | Path to enabled/disabled flag file (default: `/config/data/plex_cleanup_schedule.json`) |
+
+Infrastructure overrides (optional):
+
+| Variable | Description |
+|---|---|
+| `CONFIG_PATH` | Path to config file (default: `/config/config.ini`) |
+| `TRANSCODE_DB` | Transcode job queue DB (default: `/config/data/transcode_queue.db`) |
+| `PLEX_CLEANUP_DB` | Managarr job queue DB (default: `/config/data/plex_cleanup.db`) |
+| `PLEX_MEDIA_DB` | Plex media state DB (default: `/config/data/plex_media.db`) |
+| `TRANSCODE_SCHEDULE_PATH` | Transcode schedule file (default: `/config/data/transcode_schedule.json`) |
+| `PLEX_SCHEDULE_PATH` | Managarr schedule file (default: `/config/data/plex_cleanup_schedule.json`) |
+| `MEDIA_TEST_DB` | Test media job queue DB (default: `/config/data/media_test_queue.db`) |
+| `SONARR_TARGET_QUALITY_PROFILE_ID` | Quality profile ID to apply after first episode download |
 
 ### Runtime config (`/config/config.ini`)
 
-Edit on the host without restarting the container:
+Edit on the host without restarting. Each key can also be overridden by an env var named `SECTION_KEY` (e.g. `TRANSCODE_WORKER_COUNT`).
 
 ```ini
+[worker]
+poll_interval = 120          ; seconds between job queue polls
+
 [transcode]
 skip_groups = yify, yts, judas   ; comma-separated, case-insensitive
 cleanup_done_days = 7
 cleanup_failed_days = 21
+worker_count = 1
+hevc_icq_quality = 23            ; ICQ quality target (1–51, lower = better)
+max_concurrent_qsv_sessions = 2  ; iGPU degrades beyond ~2 simultaneous encodes
+temp_primary = /dev/shm          ; fast temp dir (uses RAM, needs shm_size in compose)
+temp_fallback = /transcode-temp  ; fallback when temp_primary is full
 
 [plex]
 collection_days = 30      ; days in Cleanup Queue before item is deleted
 movie_batch = 100         ; movies fetched per Plex API call
 collection_name = Cleanup Queue
 worker_count = 2
+
+[test_media]
+worker_count = 1
+cache_dir = /data/media_cache
+output_dir = /data/media_test
+media_dir = /media            ; scanned when include_media=true
+
+[seerr]
+root_folder_anime_movies =    ; root folder path for anime movies in Radarr
 ```
 
 ---
@@ -169,18 +194,6 @@ curl "http://localhost:5001/transcode/jobs?status=failed"
 **Clear jobs by status:**
 ```bash
 curl -X DELETE "http://localhost:5001/transcode/jobs?status=done"
-```
-
----
-
-## Sonarr Quality Profile Webhook
-
-Updates the quality profile on a series after the premiere episode is downloaded, switching from a fast 720p profile to a high-quality 1080p profile for the remainder of the series.
-
-Requires `SONARR_TARGET_QUALITY_PROFILE_ID` — set it to the numeric ID of the target profile. Find profile IDs at:
-
-```
-http://your-sonarr-host:8989/api/v3/qualityprofile?apikey=your_key
 ```
 
 ---

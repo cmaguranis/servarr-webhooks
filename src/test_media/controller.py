@@ -10,7 +10,7 @@ import random
 
 from flask import Blueprint, request
 
-from src import radarr_service, sonarr_service
+from src import config, radarr_service, sonarr_service
 from src.lang import parse_lang
 from src.media_extensions import MEDIA_EXTENSIONS
 from src.test_media.queue import enqueue_job
@@ -23,9 +23,9 @@ logger = logging.getLogger(__name__)
 bp = Blueprint("test_media", __name__)
 register_job_routes(bp, test_media_queue, "/media-test")
 
-MEDIA_TEST_CACHE_DIR  = os.getenv("MEDIA_TEST_CACHE_DIR",  "/data/media_cache")
-MEDIA_TEST_OUTPUT_DIR = os.getenv("MEDIA_TEST_OUTPUT_DIR", "/data/media_test")
-MEDIA_DIR             = os.getenv("MEDIA_DIR",             "/media")
+MEDIA_TEST_CACHE_DIR  = config.TEST_MEDIA_CACHE_DIR()
+MEDIA_TEST_OUTPUT_DIR = config.TEST_MEDIA_OUTPUT_DIR()
+MEDIA_DIR             = config.TEST_MEDIA_MEDIA_DIR()
 SLICE_DURATION    = 30  # seconds
 MIN_FILE_DURATION = SLICE_DURATION + 5  # 35s safety buffer
 

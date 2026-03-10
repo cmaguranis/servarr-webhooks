@@ -7,7 +7,6 @@ claims new jobs.
 """
 
 import logging
-import os
 
 from flask import Blueprint
 
@@ -19,7 +18,9 @@ from src.job_routes import register_job_routes, register_schedule_routes
 
 logger = logging.getLogger(__name__)
 
-_MEDIA_DB_PATH = os.getenv("PLEX_MEDIA_DB", "/config/data/plex_media.db")
+from src import config
+
+_MEDIA_DB_PATH = config.PLEX_MEDIA_DB()
 
 bp = Blueprint("managarr_cleanup", __name__)
 register_job_routes(bp, plex_queue, "/managarr/cleanup")     # GET/DELETE /jobs, POST /jobs/<id>/retry

@@ -1,4 +1,3 @@
-import os
 import logging
 
 from src import config
@@ -8,7 +7,7 @@ from src.transcode.encode import video_transcode_needed
 logger = logging.getLogger(__name__)
 
 _queue = QueueModule(
-    db_path=os.getenv("TRANSCODE_DB", "/config/data/transcode_queue.db"),
+    db_path=config.TRANSCODE_DB(),
     table="transcode_jobs",
 )
 
@@ -26,9 +25,7 @@ def enqueue_job(path: str, meta: dict) -> int | None:
 
 
 def cleanup_jobs():
-    done_days = int(config.get("transcode", "cleanup_done_days", fallback="7"))
-    failed_days = int(config.get("transcode", "cleanup_failed_days", fallback="21"))
-    _queue.cleanup_jobs(done_days, failed_days)
+    _queue.cleanup_jobs(config.TRANSCODE_CLEANUP_DONE_DAYS(), config.TRANSCODE_CLEANUP_FAILED_DAYS())
 
 
 # Module-level bindings (backward compat — controller imports these by name)

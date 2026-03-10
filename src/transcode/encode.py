@@ -6,13 +6,14 @@ import logging
 import threading
 import subprocess
 
+from src import config
 from src.transcode.probe import get_stream_info, _TEXT_SUB_CODECS
 from src.transcode.audio import get_loudness_stats, _audio_needs, _build_audio_filter
 
 logger = logging.getLogger(__name__)
 
-TRANSCODE_TEMP_PRIMARY = os.getenv("TRANSCODE_TEMP_DIR", "/dev/shm")
-TRANSCODE_TEMP_FALLBACK = os.getenv("TRANSCODE_TEMP_FALLBACK", "/transcode-temp")
+TRANSCODE_TEMP_PRIMARY = config.TRANSCODE_TEMP_PRIMARY()
+TRANSCODE_TEMP_FALLBACK = config.TRANSCODE_TEMP_FALLBACK()
 
 HEVC_ALIASES = {"x265", "h265", "h.265", "hevc"}
 
@@ -36,10 +37,10 @@ _QSV_DECODER = {
 }
 
 # ICQ quality target (1–51, lower = better). ~23 is visually transparent for 1080p HEVC.
-HEVC_ICQ_QUALITY = int(os.getenv("HEVC_ICQ_QUALITY", "23"))
+HEVC_ICQ_QUALITY = config.TRANSCODE_HEVC_ICQ_QUALITY()
 
 # Limits concurrent QSV video encodes — iGPU degrades beyond ~2 simultaneous sessions.
-_MAX_QSV_SESSIONS = int(os.getenv("MAX_CONCURRENT_QSV_SESSIONS", "2"))
+_MAX_QSV_SESSIONS = config.TRANSCODE_MAX_CONCURRENT_QSV_SESSIONS()
 _qsv_semaphore = threading.BoundedSemaphore(_MAX_QSV_SESSIONS)
 
 # Serializes temp-dir allocation so concurrent workers don't double-count free space.

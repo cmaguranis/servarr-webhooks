@@ -167,6 +167,20 @@ class JobQueue:
             finally:
                 conn.close()
 
+    def defer_job(self, job_id: int):
+        """Reset a processing job back to pending for automatic retry."""
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute(
+                    f"UPDATE {self._table} SET status='pending', updated_at=CURRENT_TIMESTAMP "
+                    f"WHERE id=? AND status='processing'",
+                    (job_id,),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
     def clear_jobs(self, status: str) -> int:
         """Delete all jobs with the given status. Returns the number of rows deleted."""
         with self._lock:
@@ -219,6 +233,8 @@ class QueueModule:
     def list_jobs(self, status: str | None = None) -> list: return self._q.list_jobs(status)
 
     def requeue_job(self, job_id: int, dry_run: bool = False) -> bool: return self._q.requeue_job(job_id, dry_run)
+
+    def defer_job(self, job_id: int): self._q.defer_job(job_id)
 
     def clear_jobs(self, status: str) -> int: return self._q.clear_jobs(status)
 

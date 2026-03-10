@@ -1,6 +1,7 @@
-import os
 import logging
 import requests
+
+from src import config
 
 logger = logging.getLogger(__name__)
 
@@ -9,11 +10,11 @@ _TIMEOUT = 15
 
 
 def _base():
-    return os.getenv("SONARR_BASEURL", "").rstrip("/")
+    return config.SONARR_BASEURL()
 
 
 def _headers():
-    return {"X-Api-Key": os.getenv("SONARR_API_KEY", "")}
+    return {"X-Api-Key": config.SONARR_API_KEY()}
 
 
 def get_series(series_id):

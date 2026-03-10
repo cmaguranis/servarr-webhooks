@@ -1,6 +1,7 @@
-import os
 import logging
 import requests
+
+from src import config
 
 logger = logging.getLogger(__name__)
 
@@ -9,11 +10,11 @@ _TIMEOUT = 15
 
 
 def _base():
-    return os.getenv("RADARR_BASEURL", "").rstrip("/")
+    return config.RADARR_BASEURL()
 
 
 def _headers():
-    return {"X-Api-Key": os.getenv("RADARR_API_KEY", "")}
+    return {"X-Api-Key": config.RADARR_API_KEY()}
 
 
 def get_movie(movie_id):

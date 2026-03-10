@@ -6,11 +6,16 @@ import time
 from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 from typing import Callable
 
+from src import config, file_op_lock
 from src.queue import JobQueue
 
 logger = logging.getLogger(__name__)
 
-POLL_INTERVAL = 10  # seconds
+
+
+
+class DeferJobError(Exception):
+    """Raise from execute_fn to reset the job to pending instead of failing."""
 
 
 class Worker:
@@ -23,15 +28,18 @@ class Worker:
         cleanup_fn: Callable | None = None,
         worker_count: int = 1,
         paused_fn: Callable | None = None,
+        lock_path_fn: Callable | None = None,
     ):
         """
-        name:        Thread name for logging
-        queue:       A JobQueue instance
-        execute_fn:  callable(path, meta, job_id, dry_run) — raises on failure
-        on_complete: optional callable(job_id, meta) — called after non-dry-run success
-        cleanup_fn:  optional callable() — called daily for job cleanup; defaults to queue.cleanup_jobs()
+        name:         Thread name for logging
+        queue:        A JobQueue instance
+        execute_fn:   callable(path, meta, job_id, dry_run) — raises on failure
+        on_complete:  optional callable(job_id, meta) — called after non-dry-run success
+        cleanup_fn:   optional callable() — called daily for job cleanup; defaults to queue.cleanup_jobs()
         worker_count: Number of concurrent worker threads
-        paused_fn:   optional callable() -> bool — when True, skip claiming new jobs
+        paused_fn:    optional callable() -> bool — when True, skip claiming new jobs
+        lock_path_fn: optional callable(path, meta) -> str | None — returns the file path
+                      to mutex-lock before executing; None means no lock for this job
         """
         self._name = name
         self._queue = queue
@@ -40,6 +48,7 @@ class Worker:
         self._cleanup_fn = cleanup_fn or queue.cleanup_jobs
         self._worker_count = worker_count
         self._paused_fn = paused_fn
+        self._lock_path_fn = lock_path_fn
         self._stop_flag = threading.Event()
         self._executor: ThreadPoolExecutor | None = None
 
@@ -48,6 +57,12 @@ class Worker:
         path = job["path"]
         job_id = job["id"]
         dry_run = meta.get("dry_run", False)
+
+        file_path = self._lock_path_fn(path, meta) if self._lock_path_fn else None
+        if file_path and not file_op_lock.try_acquire(file_path):
+            self._queue.defer_job(job_id)
+            logger.warning(f"[job {job_id}] Deferred (file locked): {file_path}")
+            return
 
         logger.info(f"[job {job_id}] Starting: {path} (dry_run={dry_run})")
         try:
@@ -62,17 +77,25 @@ class Worker:
                 if self._on_complete:
                     self._on_complete(job_id, meta)
 
+        except DeferJobError as e:
+            self._queue.defer_job(job_id)
+            logger.warning(f"[job {job_id}] Deferred: {path} — {e}")
+
         except Exception as e:
             error_msg = str(e)
             self._queue.mark_failed(job_id, error=error_msg)
             logger.error(f"[job {job_id}] Failed: {path} — {error_msg}", exc_info=True)
+
+        finally:
+            if file_path:
+                file_op_lock.release(file_path)
 
     def _loop(self):
         last_cleanup = 0.0
         while not self._stop_flag.is_set():
             try:
                 if self._paused_fn and self._paused_fn():
-                    self._stop_flag.wait(timeout=POLL_INTERVAL)
+                    self._stop_flag.wait(timeout=config.WORKER_POLL_INTERVAL())
                     continue
 
                 jobs = self._queue.claim_pending_jobs(limit=self._worker_count)
@@ -86,7 +109,7 @@ class Worker:
             except Exception as e:
                 logger.error(f"[{self._name}] Worker loop error: {e}", exc_info=True)
 
-            self._stop_flag.wait(timeout=POLL_INTERVAL)
+            self._stop_flag.wait(timeout=config.WORKER_POLL_INTERVAL())
 
     def start(self):
         self._executor = ThreadPoolExecutor(max_workers=self._worker_count)

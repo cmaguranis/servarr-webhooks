@@ -1,7 +1,8 @@
-import os
 import logging
 from typing import Iterator, Optional
 from datetime import datetime
+
+from src import config
 
 from plexapi.server import PlexServer
 from pydantic import BaseModel
@@ -41,8 +42,8 @@ class MovieMetadata(MediaStats):
 
 def _server(baseurl: Optional[str] = None, token: Optional[str] = None) -> PlexServer:
     return PlexServer(
-        baseurl or os.getenv("PLEX_BASEURL", ""),
-        token or os.getenv("PLEX_TOKEN", ""),
+        baseurl or config.PLEX_BASEURL(),
+        token or config.PLEX_TOKEN(),
     )
 
 

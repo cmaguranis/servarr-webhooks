@@ -14,15 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg && \
 
 ENV PATH="/usr/lib/jellyfin-ffmpeg:$PATH"
 
-ENV SEERR_BASEURL='' SEERR_API_KEY=''
-ENV RADARR_BASEURL='' RADARR_API_KEY=''
-ENV SONARR_BASEURL='' SONARR_API_KEY=''
-ENV SONARR_TARGET_QUALITY_PROFILE_ID=''
-ENV ROOT_FOLDER_ANIME_MOVIES=''
-ENV TRANSCODE_WORKERS='1'
-ENV TRANSCODE_DB='/config/data/transcode_queue.db'
-ENV TRANSCODE_TEMP_DIR='/dev/shm'
-ENV TRANSCODE_TEMP_FALLBACK='/transcode-temp'
 ENV CONFIG_PATH='/config/config.ini'
 
 WORKDIR /app

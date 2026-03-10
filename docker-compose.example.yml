@@ -15,13 +15,12 @@ services:
       - SEERR_API_KEY=
       - RADARR_API_KEY=
       - SONARR_API_KEY=
-      - SONARR_TARGET_QUALITY_PROFILE_ID=16
-      - ROOT_FOLDER_ANIME_MOVIES=/data/media_cache/anime_movies
-      - TRANSCODE_WORKERS=2
+      - SEERR_ROOT_FOLDER_ANIME_MOVIES=/data/media_cache/anime_movies
+      - TRANSCODE_WORKER_COUNT=2
       - TRANSCODE_TEMP_FALLBACK=/config/transcode-temp
-      - MEDIA_TEST_WORKERS=1
-      - MEDIA_TEST_OUTPUT_DIR=/data/media_test
-      - MEDIA_DIR=/media
+      - TEST_MEDIA_WORKER_COUNT=1
+      - TEST_MEDIA_OUTPUT_DIR=/data/media_test
+      - TEST_MEDIA_MEDIA_DIR=/media
     volumes:
       - ${{ sf:"appdata" }}/servarr-webhooks:/config
       - ${{ sf:"media" }}:/media:shared

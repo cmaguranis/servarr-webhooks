@@ -1,5 +1,4 @@
-import os
-
+from src import config
 from src.queue import QueueModule
 
 _queue: QueueModule | None = None
@@ -13,7 +12,7 @@ def _q() -> QueueModule:
 
 def init_db(db_path: str | None = None):
     global _queue
-    path = db_path or os.getenv("PLEX_CLEANUP_DB", "/config/data/plex_cleanup.db")
+    path = db_path or config.PLEX_CLEANUP_DB()
     _queue = QueueModule(db_path=path, table="plex_cleanup_jobs")
     _queue.init_db()
 

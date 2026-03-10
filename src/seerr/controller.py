@@ -1,10 +1,9 @@
-import os
 import time
 import logging
 import requests
 from flask import Blueprint, request
 
-from src import radarr_service
+from src import config, radarr_service
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +25,9 @@ def handle_seerr_webhook():
     # Wait for initial auto-approve to finish
     time.sleep(3)
 
-    seerr_baseurl = os.getenv("SEERR_BASEURL", "").rstrip("/")
-    seerr_api_key = os.getenv("SEERR_API_KEY", "")
-    root_folder_anime_movies = os.getenv("ROOT_FOLDER_ANIME_MOVIES", "")
+    seerr_baseurl = config.SEERR_BASEURL()
+    seerr_api_key = config.SEERR_API_KEY()
+    root_folder_anime_movies = config.SEERR_ROOT_FOLDER_ANIME_MOVIES()
 
     headers = {"X-Api-Key": seerr_api_key, "accept": "application/json"}
     try:
