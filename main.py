@@ -87,7 +87,6 @@ if not os.path.exists(config_path):
     shutil.copy(src_default, config_path)
 
 from src.seerr.controller import bp as seerr_bp
-from src.promote.controller import bp as promote_bp
 from src.transcode.controller import bp as transcode_bp
 from src.import_scan.controller import bp as import_scan_bp
 from src.test_media.controller import bp as test_media_bp
@@ -98,7 +97,6 @@ from src.test_media import worker as media_test_worker
 
 app = Flask(__name__)
 app.register_blueprint(seerr_bp)
-app.register_blueprint(promote_bp)
 app.register_blueprint(transcode_bp)
 app.register_blueprint(import_scan_bp)
 app.register_blueprint(test_media_bp)

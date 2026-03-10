@@ -173,18 +173,6 @@ curl -X DELETE "http://localhost:5001/transcode/jobs?status=done"
 
 ---
 
-## Promote Cache Webhook
-
-Moves media from an SSD cache to spinning disk (HDD) based on the date it was added to Radarr/Sonarr. Items older than 8 days are eligible for promotion.
-
-```
-POST http://your-host:5001/promote-cache
-```
-
-Trigger this on a schedule (e.g. via cron or a Compose-managed container) to periodically sweep eligible media.
-
----
-
 ## Sonarr Quality Profile Webhook
 
 Updates the quality profile on a series after the premiere episode is downloaded, switching from a fast 720p profile to a high-quality 1080p profile for the remainder of the series.
@@ -392,9 +380,6 @@ python scripts/test_webhooks.py --dry-run sonarr
 
 # Seerr request approved
 python scripts/test_webhooks.py seerr
-
-# Trigger promote-cache sweep
-python scripts/test_webhooks.py promote
 
 # Skip-group check (YIFY — should return 200 without enqueuing)
 python scripts/test_webhooks.py skip-group

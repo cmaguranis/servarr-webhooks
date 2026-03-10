@@ -9,7 +9,6 @@ Targets:
   radarr          POST /transcode-webhook with a Radarr Download payload
   sonarr          POST /transcode-webhook with a Sonarr Download payload
   seerr           POST /seerr_webhook
-  promote         POST /promote-cache
   skip-group      POST /transcode-webhook with a YIFY release (should be skipped, 200)
   non-download    POST /transcode-webhook with eventType=Test (should be ignored, 200)
   retry           POST /transcode/jobs/<id>/retry  (requires --job-id)
@@ -112,7 +111,7 @@ def main():
     parser.add_argument("--url", default="http://localhost:5001", help="Base URL (default: http://localhost:5001)")
     parser.add_argument("--dry-run", action="store_true", help="Append ?dry_run=true to transcode webhook")
     parser.add_argument("--job-id", type=int, help="Job ID for retry target")
-    parser.add_argument("target", choices=["radarr", "sonarr", "seerr", "promote", "skip-group", "non-download", "retry", "retry-missing", "jobs"])
+    parser.add_argument("target", choices=["radarr", "sonarr", "seerr", "skip-group", "non-download", "retry", "retry-missing", "jobs"])
     args = parser.parse_args()
 
     base = args.url.rstrip("/")
@@ -132,10 +131,6 @@ def main():
     elif args.target == "seerr":
         url = f"{base}/seerr_webhook"
         payload = SEERR_PAYLOAD
-        method = "POST"
-    elif args.target == "promote":
-        url = f"{base}/promote-cache"
-        payload = None
         method = "POST"
     elif args.target == "skip-group":
         url = f"{base}/transcode-webhook"
