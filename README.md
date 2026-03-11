@@ -2,6 +2,31 @@
 
 A collection of webhooks used by different *arr services — Overseerr, Radarr, and Sonarr.
 
+- [Setup](#setup)
+   * [Docker Compose (recommended)](#docker-compose-recommended)
+   * [Environment variables](#environment-variables)
+   * [Runtime config (`/config/config.ini`)](#runtime-config-configconfigini)
+- [Seerr Webhook](#seerr-webhook)
+   * [Overseerr Webhook Config](#overseerr-webhook-config)
+- [Transcode Webhook](#transcode-webhook)
+   * [Radarr (v6+)](#radarr-v6)
+   * [Sonarr (v4+)](#sonarr-v4)
+   * [Skipping trusted release groups](#skipping-trusted-release-groups)
+   * [Dry-run mode](#dry-run-mode)
+   * [Enqueue a folder](#enqueue-a-folder)
+- [Manual Import Scan](#manual-import-scan)
+- [Test Media Generation](#test-media-generation)
+   * [Environment variables](#environment-variables-1)
+   * [API](#api)
+- [Managarr Cleanup](#managarr-cleanup)
+   * [API](#api-1)
+- [Running Tests](#running-tests)
+- [Manual Testing](#manual-testing)
+   * [Synthetic payloads](#synthetic-payloads)
+   * [Real media from Radarr/Sonarr](#real-media-from-radarrsonarr)
+- [Useful Scripts](#useful-scripts)
+   * [Finding a Plex token](#finding-a-plex-token)
+
 ## Setup
 
 ### Docker Compose (recommended)
@@ -450,3 +475,15 @@ uv run scripts/enqueue_from_sonarr.py \
 ```
 
 Both scripts print the full payload before firing it and show the HTTP status and response body.
+
+
+## Useful Scripts
+
+### Finding a Plex token
+
+Plex server is running in a container:
+
+```bash
+docker exec -it plex /bin/bash
+
+cat /config/Library/Application\ Support/Plex\ Media\ Server/Preferences.xml | grep -oP 'PlexOnlineToken="\K[^"]+' 

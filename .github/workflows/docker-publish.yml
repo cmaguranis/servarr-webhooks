@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - master
+    paths:
+      - "src/**"
+      - "config.ini.default"
+      - "dockerfile"
+      - "main.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".env.example"
 
 env:
   REGISTRY: ghcr.io

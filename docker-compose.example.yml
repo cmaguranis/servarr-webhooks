@@ -9,6 +9,8 @@ services:
     stop_grace_period: 20s
     environment:
       - TZ=${{ tz }}
+      - PLEX_BASEURL=http://192.168.1.67:32400
+      - PLEX_TOKEN=
       - SEERR_BASEURL=http://192.168.1.67:5055
       - RADARR_BASEURL=http://192.168.1.67:7878
       - SONARR_BASEURL=http://192.168.1.67:8989
