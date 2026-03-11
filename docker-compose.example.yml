@@ -17,6 +17,7 @@ services:
       - SEERR_API_KEY=
       - RADARR_API_KEY=
       - SONARR_API_KEY=
+      - SONARR_TARGET_QUALITY_PROFILE_ID=23
       - SEERR_ROOT_FOLDER_ANIME_MOVIES=/data/media_cache/anime_movies
       - TRANSCODE_WORKER_COUNT=2
       - TRANSCODE_TEMP_FALLBACK=/config/transcode-temp

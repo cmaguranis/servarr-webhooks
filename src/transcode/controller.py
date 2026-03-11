@@ -64,8 +64,7 @@ def transcode_webhook():
             logger.warning(f"Could not check 'transcoded' tag — proceeding anyway: {e}")
 
     orig_lang = _parse_lang(
-        (media_obj.get("originalLanguage") or {}).get("name")
-        or media_info.get("audioLanguages", "")
+        (media_obj.get("originalLanguage") or {}).get("name") or media_info.get("audioLanguages", "")
     )
 
     start_sec_raw = request.args.get("start_sec")
@@ -89,7 +88,6 @@ def transcode_webhook():
     return ("", 202)
 
 
-
 @bp.route("/transcode/enqueue-folder", methods=["POST"])
 def enqueue_folder():
     """Scan a folder for media files and enqueue transcode jobs for each.
@@ -106,33 +104,52 @@ def enqueue_folder():
     if not os.path.isdir(folder):
         return ({"error": f"Directory does not exist: {folder}"}, 400)
 
-    # Build path → orig_lang map from Arr APIs as fallback for non-clip files
+    # Build path → orig_lang map and transcoded paths set from Arr APIs
     arr_lang_map: dict[str, str] = {}
+    arr_transcoded_paths: set[str] = set()
     try:
-        arr_lang_map.update(radarr_service.get_path_lang_map())
+        radarr_transcoded_tag_id = radarr_service.get_or_create_tag("transcoded")
+        for path, movie in radarr_service.get_path_movie_map().items():
+            lang = (movie.get("originalLanguage") or {}).get("name")
+            if lang:
+                arr_lang_map[path] = lang
+            if radarr_transcoded_tag_id in (movie.get("tags") or []):
+                arr_transcoded_paths.add(path)
         logger.info(f"enqueue-folder: loaded {len(arr_lang_map)} Radarr path→lang entries")
     except Exception as e:
-        logger.warning(f"enqueue-folder: Radarr lang lookup unavailable — {e}")
+        logger.warning(f"enqueue-folder: Radarr lookup unavailable — {e}")
     try:
-        sonarr_map = sonarr_service.get_path_lang_map()
-        arr_lang_map.update(sonarr_map)
-        logger.info(f"enqueue-folder: loaded {len(sonarr_map)} Sonarr path→lang entries")
+        sonarr_transcoded_tag_id = sonarr_service.get_or_create_tag("transcoded")
+        sonarr_count = 0
+        for path, entry in sonarr_service.get_path_episode_map().items():
+            series = entry["series"]
+            lang = (series.get("originalLanguage") or {}).get("name")
+            if lang:
+                arr_lang_map[path] = lang
+                sonarr_count += 1
+            if sonarr_transcoded_tag_id in (series.get("tags") or []):
+                arr_transcoded_paths.add(path)
+        logger.info(f"enqueue-folder: loaded {sonarr_count} Sonarr path→lang entries")
     except Exception as e:
-        logger.warning(f"enqueue-folder: Sonarr lang lookup unavailable — {e}")
+        logger.warning(f"enqueue-folder: Sonarr lookup unavailable — {e}")
 
     enqueued = []
-    skipped  = []
-    errors   = []
+    skipped = []
+    errors = []
 
     for dirpath, _dirnames, filenames in os.walk(folder):
         for fname in filenames:
             if os.path.splitext(fname)[1].lower() not in MEDIA_EXTENSIONS:
                 continue
             path = os.path.join(dirpath, fname)
+            if path in arr_transcoded_paths:
+                logger.info(f"enqueue-folder: skipping already-transcoded {path}")
+                skipped.append(path)
+                continue
             try:
-                info    = get_stream_info(path)
+                info = get_stream_info(path)
                 streams = info.get("streams") or []
-                video   = next((s for s in streams if s.get("codec_type") == "video"), {})
+                video = next((s for s in streams if s.get("codec_type") == "video"), {})
                 a_streams = [s for s in streams if s.get("codec_type") == "audio"]
 
                 # Priority 1: metadata stored at slice time in the media_test queue
@@ -140,24 +157,28 @@ def enqueue_folder():
                 # Priority 3: eng preference heuristic, then first audio track
                 media_test_job = get_media_test_job(path)
                 if media_test_job:
-                    clip_meta  = json.loads(media_test_job.get("meta") or "{}")
+                    clip_meta = json.loads(media_test_job.get("meta") or "{}")
                     audio_lang = clip_meta.get("orig_lang")
                     logger.info(f"enqueue-folder: using stored orig_lang={audio_lang!r} for {path}")
                 elif arr_lang_map.get(path):
                     audio_lang = _parse_lang(arr_lang_map[path])
                 else:
                     eng_stream = next((s for s in a_streams if (s.get("tags") or {}).get("language") == "eng"), None)
-                    audio      = eng_stream or (a_streams[0] if a_streams else {})
+                    audio = eng_stream or (a_streams[0] if a_streams else {})
                     audio_lang = (audio.get("tags") or {}).get("language")
 
                 meta = {
-                    "codec":        video.get("codec_name"),
+                    "codec": video.get("codec_name"),
                     "bitrate_kbps": int(float(info.get("format", {}).get("bit_rate", 0))) // 1000 or None,
-                    "orig_lang":    audio_lang,
-                    "has_51":       any((s.get("channels") or 0) > 5 for s in a_streams if (s.get("tags") or {}).get("language") == audio_lang),
-                    "arr_type":     None,
-                    "arr_id":       None,
-                    "dry_run":      dry_run,
+                    "orig_lang": audio_lang,
+                    "has_51": any(
+                        (s.get("channels") or 0) > 5
+                        for s in a_streams
+                        if (s.get("tags") or {}).get("language") == audio_lang
+                    ),
+                    "arr_type": None,
+                    "arr_id": None,
+                    "dry_run": dry_run,
                 }
             except Exception as e:
                 logger.warning(f"enqueue-folder: ffprobe failed for {path} — {e}")
@@ -174,7 +195,6 @@ def enqueue_folder():
 
     logger.info(
         f"enqueue-folder {folder}: {len(enqueued)} enqueued, "
-        f"{len(skipped)} skipped, {len(errors)} errors"
-        + (" (dry_run)" if dry_run else "")
+        f"{len(skipped)} skipped, {len(errors)} errors" + (" (dry_run)" if dry_run else "")
     )
     return ({"enqueued": enqueued, "skipped": skipped, "errors": errors}, 202)
