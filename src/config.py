@@ -35,10 +35,6 @@ def WORKER_POLL_INTERVAL() -> int:
 
 
 # [transcode]
-def TRANSCODE_SKIP_GROUPS() -> list:
-    return _get_list("transcode", "skip_groups")
-
-
 def TRANSCODE_CLEANUP_DONE_DAYS() -> int:
     return _get_int("transcode", "cleanup_done_days", 7)
 

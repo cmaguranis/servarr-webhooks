@@ -27,9 +27,6 @@ def mocks():
     """Patches all external dependencies used by the transcode controller."""
     with ExitStack() as stack:
         yield {
-            "get_list": stack.enter_context(
-                patch("src.transcode.controller.config.TRANSCODE_SKIP_GROUPS", return_value=[])
-            ),
             "radarr_tag": stack.enter_context(
                 patch("src.transcode.controller.radarr_service.get_or_create_tag", return_value=99)
             ),
@@ -66,7 +63,6 @@ RADARR_PAYLOAD = {
     "movieFile": {
         "id": 10,
         "path": "/media/movies/Test Movie (2020)/Test Movie.mkv",
-        "releaseGroup": "SomeGroup",
         "mediaInfo": {
             "videoCodec": "AVC",
             "videoBitrate": 12000,
@@ -87,7 +83,6 @@ SONARR_PAYLOAD = {
     "episodeFile": {
         "id": 20,
         "path": "/media/tv/Test Show/Season 01/S01E01.mkv",
-        "releaseGroup": "SomeGroup",
         "mediaInfo": {
             "videoCodec": "x265",
             "videoBitrate": 3000,
@@ -210,26 +205,6 @@ class TestSonarrEnqueue:
 # ---------------------------------------------------------------------------
 
 class TestSkipLogic:
-    def test_trusted_group_skipped(self, client, mocks):
-        mocks["get_list"].return_value = ["yify", "yts", "judas"]
-        payload = {**RADARR_PAYLOAD, "movieFile": {**RADARR_PAYLOAD["movieFile"], "releaseGroup": "YIFY"}}
-        rv = _post(client, payload)
-        assert rv.status_code == 200
-        mocks["enqueue"].assert_not_called()
-
-    def test_skip_group_case_insensitive(self, client, mocks):
-        mocks["get_list"].return_value = ["yify"]
-        payload = {**RADARR_PAYLOAD, "movieFile": {**RADARR_PAYLOAD["movieFile"], "releaseGroup": "YiFy"}}
-        rv = _post(client, payload)
-        assert rv.status_code == 200
-        mocks["enqueue"].assert_not_called()
-
-    def test_unknown_group_not_skipped(self, client, mocks):
-        mocks["get_list"].return_value = ["yify", "yts"]
-        rv = _post(client, RADARR_PAYLOAD)
-        assert rv.status_code == 202
-        mocks["enqueue"].assert_called_once()
-
     def test_already_transcoded_tag_skipped(self, client, mocks):
         mocks["radarr_tag"].return_value = 5
         payload = {
@@ -436,11 +411,17 @@ def folder_mocks():
             "enqueue": stack.enter_context(
                 patch("src.transcode.controller.enqueue_job", return_value=1)
             ),
-            "radarr_map": stack.enter_context(
-                patch("src.transcode.controller.radarr_service.get_path_lang_map", return_value={})
+            "radarr_tag": stack.enter_context(
+                patch("src.transcode.controller.radarr_service.get_or_create_tag", return_value=99)
             ),
-            "sonarr_map": stack.enter_context(
-                patch("src.transcode.controller.sonarr_service.get_path_lang_map", return_value={})
+            "radarr_movie_map": stack.enter_context(
+                patch("src.transcode.controller.radarr_service.get_path_movie_map", return_value={})
+            ),
+            "sonarr_tag": stack.enter_context(
+                patch("src.transcode.controller.sonarr_service.get_or_create_tag", return_value=99)
+            ),
+            "sonarr_ep_map": stack.enter_context(
+                patch("src.transcode.controller.sonarr_service.get_path_episode_map", return_value={})
             ),
             "media_test_job": stack.enter_context(
                 patch("src.transcode.controller.get_media_test_job", return_value=None)
@@ -592,7 +573,9 @@ class TestEnqueueFolder:
     def test_arr_lang_map_used_when_no_media_test_job(self, client, folder_mocks):
         # File has eng+ita tracks; Arr map says original is Japanese
         folder_mocks["walk"].return_value = [("/media/anime", [], ["ep.mkv"])]
-        folder_mocks["sonarr_map"].return_value = {"/media/anime/ep.mkv": "Japanese"}
+        folder_mocks["sonarr_ep_map"].return_value = {
+            "/media/anime/ep.mkv": {"series": {"originalLanguage": {"name": "Japanese"}, "tags": []}, "episode_file": {}}
+        }
         folder_mocks["probe"].return_value = {
             "format": {"bit_rate": "4000000"},
             "streams": [
@@ -607,8 +590,8 @@ class TestEnqueueFolder:
 
     def test_arr_lookup_failure_falls_back_to_heuristic(self, client, folder_mocks):
         folder_mocks["walk"].return_value = [("/data/media_test", [], ["clip.mkv"])]
-        folder_mocks["radarr_map"].side_effect = Exception("connection refused")
-        folder_mocks["sonarr_map"].side_effect = Exception("connection refused")
+        folder_mocks["radarr_movie_map"].side_effect = Exception("connection refused")
+        folder_mocks["sonarr_ep_map"].side_effect = Exception("connection refused")
         self._post(client)
         # Should still succeed via eng heuristic
         _, meta = folder_mocks["enqueue"].call_args.args

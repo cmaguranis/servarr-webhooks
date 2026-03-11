@@ -10,7 +10,7 @@ import os
 
 from flask import Blueprint, request
 
-from src import config, radarr_service, sonarr_service
+from src import radarr_service, sonarr_service
 from src.job_routes import register_job_routes, register_schedule_routes
 from src.lang import parse_lang as _parse_lang
 from src.media_extensions import MEDIA_EXTENSIONS
@@ -42,13 +42,6 @@ def transcode_webhook():
     media_obj = payload.get("movie") or payload.get("series") or {}
     media_info = file_info.get("mediaInfo") or {}
     arr_type = "radarr" if is_radarr else "sonarr"
-
-    # Skip trusted release groups (hot-reloaded from config.ini)
-    skip_groups = set(config.TRANSCODE_SKIP_GROUPS())
-    release_group = (file_info.get("releaseGroup") or "").strip()
-    if release_group.lower() in skip_groups:
-        logger.info(f"Skipping trusted group '{release_group}': {file_info.get('path')}")
-        return ("", 200)
 
     media_test = request.args.get("media_test", "").lower() == "true"
 

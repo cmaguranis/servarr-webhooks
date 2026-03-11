@@ -11,7 +11,6 @@ A collection of webhooks used by different *arr services — Overseerr, Radarr, 
 - [Transcode Webhook](#transcode-webhook)
    * [Radarr (v6+)](#radarr-v6)
    * [Sonarr (v4+)](#sonarr-v4)
-   * [Skipping trusted release groups](#skipping-trusted-release-groups)
    * [Dry-run mode](#dry-run-mode)
    * [Enqueue a folder](#enqueue-a-folder)
 - [Manual Import Scan](#manual-import-scan)
@@ -76,7 +75,6 @@ Edit on the host without restarting. Each key can also be overridden by an env v
 poll_interval = 120          ; seconds between job queue polls
 
 [transcode]
-skip_groups = yify, yts, judas   ; comma-separated, case-insensitive
 cleanup_done_days = 7
 cleanup_failed_days = 21
 worker_count = 1
@@ -171,10 +169,6 @@ Go to **Settings → Connect → + → Webhook** and configure:
 Save, then click **Test** to verify connectivity.
 
 > **Note:** Both Radarr and Sonarr send `eventType: "Download"` for both On Import and On Upgrade — no custom payload template is needed.
-
-### Skipping trusted release groups
-
-Files from groups listed in `skip_groups` (e.g. YIFY, YTS, Judas) are skipped at enqueue time — no transcode runs. Edit `/config/config.ini` to add or remove groups; takes effect immediately without restarting.
 
 ### Dry-run mode
 
@@ -420,9 +414,6 @@ python scripts/test_webhooks.py --dry-run sonarr
 
 # Seerr request approved
 python scripts/test_webhooks.py seerr
-
-# Skip-group check (YIFY — should return 200 without enqueuing)
-python scripts/test_webhooks.py skip-group
 
 # Non-download event (eventType=Test — should return 200 without enqueuing)
 python scripts/test_webhooks.py non-download
