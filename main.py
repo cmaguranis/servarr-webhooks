@@ -1,3 +1,4 @@
+import inspect
 import os
 import re
 import shutil
@@ -86,22 +87,43 @@ if not os.path.exists(config_path):
     src_default = os.path.join(os.path.dirname(__file__), "config.ini.default")
     shutil.copy(src_default, config_path)
 
+from src import config
 from src.seerr.controller import bp as seerr_bp
 from src.transcode.controller import bp as transcode_bp
 from src.import_scan.controller import bp as import_scan_bp
 from src.test_media.controller import bp as test_media_bp
+from src.managarr.controller import bp as managarr_bp
 from src.transcode.queue import init_db
 from src.transcode import worker
 from src.test_media.queue import init_db as init_media_test_db
 from src.test_media import worker as media_test_worker
+from src.managarr import worker as managarr_worker
 
 app = Flask(__name__)
 app.register_blueprint(seerr_bp)
 app.register_blueprint(transcode_bp)
 app.register_blueprint(import_scan_bp)
 app.register_blueprint(test_media_bp)
+app.register_blueprint(managarr_bp)
 
 _access_log = logging.getLogger("access")
+
+_SECRET_NAMES = {"KEY", "TOKEN", "PASSWORD"}
+
+
+@app.route("/debug/config")
+def debug_config():
+    values = {}
+    for name, fn in inspect.getmembers(config, inspect.isfunction):
+        if not name.isupper():
+            continue
+        try:
+            val = fn()
+        except Exception as e:
+            val = f"<error: {e}>"
+        is_secret = any(s in name for s in _SECRET_NAMES)
+        values[name] = "***" if is_secret else val
+    return values
 
 @app.after_request
 def _log_request(response):
@@ -117,6 +139,8 @@ init_db()
 worker.start()
 init_media_test_db()
 media_test_worker.start()
+managarr_worker.init_db()
+managarr_worker.start()
 
 if __name__ == "__main__":
     serve(app, host="0.0.0.0", port=5001)
