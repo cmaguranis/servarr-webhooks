@@ -25,6 +25,7 @@ def _plex(plex_key=1, title="Test", collections=None, location="/media_cache/foo
 # Plex collection lock
 # ---------------------------------------------------------------------------
 
+
 class TestPlexCollectionLock:
     def test_add_to_collection_holds_lock_during_addItems(self):
         """_plex_collection_lock must be held when addItems is called."""
@@ -51,7 +52,7 @@ class TestPlexCollectionLock:
         def fake_removeItems(items):
             lock_held_during_call.append(_plex_collection_lock.locked())
 
-        name = "Cleanup Queue"
+        name = "Leaving Soon"
         plex, item = _plex(collections=[name])
         collection = MagicMock()
         collection.removeItems.side_effect = fake_removeItems
@@ -76,38 +77,46 @@ class TestPlexCollectionLock:
 # Arr service locks
 # ---------------------------------------------------------------------------
 
+
 class TestArrLocks:
     def test_radarr_lock_held_during_update_movie_path(self):
         lock_held = []
 
-        with patch("src.managarr.worker.radarr_service") as mock_radarr, \
-             patch("src.managarr.worker.sonarr_service"):
+        with patch("src.managarr.worker.radarr_service") as mock_radarr, patch("src.managarr.worker.sonarr_service"):
+
             def fake_update(tmdb_id, new_root):
                 lock_held.append(_radarr_lock.locked())
-            mock_radarr.get_movie_by_tmdb.return_value = {
-                "rootFolderPath": "/media_cache/movies"
-            }
+
+            mock_radarr.get_movie_by_tmdb.return_value = {"rootFolderPath": "/media_cache/movies"}
             mock_radarr.update_movie_path.side_effect = fake_update
 
             plex, item = _plex()
             item.collections = []
             from src.managarr.worker import _promote
-            _promote(plex, 1, {
-                "title": "Foo",
-                "location": "/media_cache/movies/Foo.mkv",
-                "media_type": "movie",
-                "tmdb_id": 123,
-            }, job_id=1, dry_run=False)
+
+            _promote(
+                plex,
+                1,
+                {
+                    "title": "Foo",
+                    "location": "/media_cache/movies/Foo.mkv",
+                    "media_type": "movie",
+                    "tmdb_id": 123,
+                },
+                job_id=1,
+                dry_run=False,
+            )
 
         assert lock_held == [True]
 
     def test_sonarr_lock_held_during_update_series(self):
         lock_held = []
 
-        with patch("src.managarr.worker.sonarr_service") as mock_sonarr, \
-             patch("src.managarr.worker.radarr_service"):
+        with patch("src.managarr.worker.sonarr_service") as mock_sonarr, patch("src.managarr.worker.radarr_service"):
+
             def fake_update(series):
                 lock_held.append(_sonarr_lock.locked())
+
             mock_sonarr.get_series_by_tvdb.return_value = {
                 "rootFolderPath": "/media_cache/tv",
                 "path": "/media_cache/tv/Show",
@@ -117,12 +126,19 @@ class TestArrLocks:
             plex, item = _plex()
             item.collections = []
             from src.managarr.worker import _promote
-            _promote(plex, 1, {
-                "title": "Show",
-                "location": "/media_cache/tv/Show/s01e01.mkv",
-                "media_type": "show",
-                "tvdb_id": 456,
-            }, job_id=1, dry_run=False)
+
+            _promote(
+                plex,
+                1,
+                {
+                    "title": "Show",
+                    "location": "/media_cache/tv/Show/s01e01.mkv",
+                    "media_type": "show",
+                    "tvdb_id": 456,
+                },
+                job_id=1,
+                dry_run=False,
+            )
 
         assert lock_held == [True]
 
@@ -130,18 +146,27 @@ class TestArrLocks:
         lock_held = []
 
         with patch("src.managarr.worker.radarr_service") as mock_radarr:
+
             def fake_delete(movie_id, delete_files):
                 lock_held.append(_radarr_lock.locked())
+
             mock_radarr.get_movie_by_tmdb.return_value = {"id": 7}
             mock_radarr.delete_movie.side_effect = fake_delete
 
             plex, item = _plex()
             from src.managarr.worker import _delete
-            _delete(plex, 1, {
-                "title": "Foo",
-                "media_type": "movie",
-                "tmdb_id": 123,
-            }, job_id=1, dry_run=False)
+
+            _delete(
+                plex,
+                1,
+                {
+                    "title": "Foo",
+                    "media_type": "movie",
+                    "tmdb_id": 123,
+                },
+                job_id=1,
+                dry_run=False,
+            )
 
         assert lock_held == [True]
 
@@ -152,12 +177,19 @@ class TestArrLocks:
 
             plex, _ = _plex()
             from src.managarr.worker import _delete
-            _delete(plex, 1, {
-                "title": "Show",
-                "media_type": "show",
-                "tvdb_id": 100,
-                "sonarr_continuing": True,
-            }, job_id=1, dry_run=False)
+
+            _delete(
+                plex,
+                1,
+                {
+                    "title": "Show",
+                    "media_type": "show",
+                    "tvdb_id": 100,
+                    "sonarr_continuing": True,
+                },
+                job_id=1,
+                dry_run=False,
+            )
 
         mock_sonarr.delete_episode_files.assert_called_once_with(42)
         mock_sonarr.delete_series.assert_not_called()
@@ -169,12 +201,19 @@ class TestArrLocks:
 
             plex, _ = _plex()
             from src.managarr.worker import _delete
-            _delete(plex, 1, {
-                "title": "Show",
-                "media_type": "show",
-                "tvdb_id": 100,
-                "sonarr_continuing": False,
-            }, job_id=1, dry_run=False)
+
+            _delete(
+                plex,
+                1,
+                {
+                    "title": "Show",
+                    "media_type": "show",
+                    "tvdb_id": 100,
+                    "sonarr_continuing": False,
+                },
+                job_id=1,
+                dry_run=False,
+            )
 
         mock_sonarr.delete_series.assert_called_once_with(42, delete_files=True)
         mock_sonarr.delete_episode_files.assert_not_called()
@@ -186,12 +225,19 @@ class TestArrLocks:
 
             plex, _ = _plex()
             from src.managarr.worker import _delete
-            _delete(plex, 1, {
-                "title": "Show",
-                "media_type": "show",
-                "tvdb_id": 100,
-                "sonarr_continuing": True,
-            }, job_id=1, dry_run=True)
+
+            _delete(
+                plex,
+                1,
+                {
+                    "title": "Show",
+                    "media_type": "show",
+                    "tvdb_id": 100,
+                    "sonarr_continuing": True,
+                },
+                job_id=1,
+                dry_run=True,
+            )
 
         mock_sonarr.delete_episode_files.assert_not_called()
         mock_sonarr.delete_series.assert_not_called()

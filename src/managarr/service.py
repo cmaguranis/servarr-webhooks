@@ -76,6 +76,8 @@ def _fetch_batched(section, libtype, batch_size=50):
         if not batch:
             break
         yield from batch
+        if len(batch) < batch_size:
+            break
         offset += batch_size
 
 

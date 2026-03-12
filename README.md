@@ -14,6 +14,7 @@ A collection of webhooks used by different *arr services — Overseerr, Radarr, 
    * [Dry-run mode](#dry-run-mode)
    * [Enqueue a folder](#enqueue-a-folder)
 - [Manual Import Scan](#manual-import-scan)
+- [Transcoding Manually Added Media](#transcoding-manually-added-media)
 - [Test Media Generation](#test-media-generation)
    * [Environment variables](#environment-variables-1)
    * [API](#api)
@@ -83,9 +84,9 @@ temp_primary = /dev/shm          ; fast temp dir (uses RAM, needs shm_size in co
 temp_fallback = /transcode-temp  ; fallback when temp_primary is full
 
 [plex]
-collection_days = 30      ; days in Cleanup Queue before item is deleted
+collection_days = 30      ; days in Leaving Soon before item is deleted
 movie_batch = 100         ; movies fetched per Plex API call
-collection_name = "Leaving Soon"
+collection_name = Leaving Soon
 worker_count = 2
 
 [test_media]
@@ -259,6 +260,42 @@ Response:
 ```
 
 Radarr issues `DownloadedMoviesScan`; Sonarr issues `DownloadedEpisodesScan`. Both match, rename, and move the file into the library, then fire their On Import webhooks. Errors from one service do not block the other.
+
+---
+
+## Transcoding Manually Added Media
+
+If you copied files directly to the filesystem and added them to Plex outside of Radarr/Sonarr, the transcode webhook was never fired. Use one of these two paths depending on whether Radarr/Sonarr knows about the file yet.
+
+### Path 1: Not yet in Radarr/Sonarr (recommended)
+
+Use `/import-scan` to have Radarr or Sonarr pick up the file, add it to the library, and automatically fire the transcode webhook:
+
+```bash
+# Movie — let Radarr import and enqueue a transcode job
+curl -X POST http://localhost:5001/import-scan \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/media/Movies/The Dark Knight (2008)", "arr": "radarr"}'
+
+# TV episode — let Sonarr import and enqueue a transcode job
+curl -X POST http://localhost:5001/import-scan \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/media/TV/Breaking Bad/Season 01", "arr": "sonarr"}'
+```
+
+Radarr/Sonarr will match, rename, and move the file, then fire the transcode webhook exactly as it would on a normal download.
+
+### Path 2: Already in Radarr/Sonarr but never transcoded
+
+If the file is already in the Radarr/Sonarr library (e.g. the webhook was missed or the service was down), enqueue transcode jobs directly by pointing at the folder:
+
+```bash
+curl -X POST http://localhost:5001/transcode/enqueue-folder \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/media/Movies/The Dark Knight (2008)"}'
+```
+
+Add `?dry_run=true` first to preview what would be enqueued without creating any jobs.
 
 ---
 
