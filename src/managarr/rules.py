@@ -76,15 +76,17 @@ def _result(item: MovieMetadata | ShowMetadata, action: Action) -> RuleResult:
 def process_rules(item: MovieMetadata | ShowMetadata) -> RuleResult:
     now = _now()
 
-    # Rated > 6: keep or promote from cache
-    if item.user_rating is not None and item.user_rating > 6:
+    # Rated 8–10: keep or promote from cache
+    if item.user_rating is not None and item.user_rating >= 8:
         if item.location and "media_cache" in item.location:
             return _result(item, Action.PROMOTE)
         return _result(item, Action.DO_NOTHING)
 
-    # Rated ≤ 6: delete
-    if item.user_rating is not None and item.user_rating <= 6:
+    # Rated 0–3: delete
+    if item.user_rating is not None and item.user_rating <= 3:
         return _result(item, Action.DELETE)
+
+    # Rated 4–7: fall through to unrated time-based rules
 
     # Unrated + unwatched + added > 60 days
     if (

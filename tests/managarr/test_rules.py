@@ -60,24 +60,44 @@ def _record(state: str, days_ago: int = 0) -> dict:
 # process_rules — rating rules
 # ---------------------------------------------------------------------------
 
-def test_rated_above_6_returns_do_nothing():
+def test_rated_8_to_10_returns_do_nothing():
     item = _movie(user_rating=8.0)
     assert process_rules(item).action == Action.DO_NOTHING
 
 
-def test_rated_above_6_in_media_cache_returns_promote():
-    item = _movie(user_rating=7.5, location="/media_cache/movies/Film.mkv")
+def test_rated_8_to_10_in_media_cache_returns_promote():
+    item = _movie(user_rating=8.5, location="/media_cache/movies/Film.mkv")
     assert process_rules(item).action == Action.PROMOTE
 
 
-def test_rated_exactly_6_returns_delete():
-    item = _movie(user_rating=6.0)
+def test_rated_exactly_8_returns_do_nothing():
+    item = _movie(user_rating=8.0)
+    assert process_rules(item).action == Action.DO_NOTHING
+
+
+def test_rated_0_to_3_returns_delete():
+    item = _movie(user_rating=3.0)
     assert process_rules(item).action == Action.DELETE
 
 
-def test_rated_below_6_returns_delete():
-    item = _movie(user_rating=4.0)
+def test_rated_exactly_3_returns_delete():
+    item = _movie(user_rating=3.0)
     assert process_rules(item).action == Action.DELETE
+
+
+def test_rated_4_to_7_recent_unwatched_returns_do_nothing():
+    item = _movie(user_rating=6.0, view_count=0, date_added=datetime.utcnow() - timedelta(days=30))
+    assert process_rules(item).action == Action.DO_NOTHING
+
+
+def test_rated_4_to_7_old_unwatched_returns_add_to_collection():
+    item = _movie(user_rating=5.0, view_count=0, date_added=datetime.utcnow() - timedelta(days=61))
+    assert process_rules(item).action == Action.ADD_TO_COLLECTION
+
+
+def test_rated_4_to_7_in_media_cache_does_not_promote():
+    item = _movie(user_rating=6.0, view_count=0, date_added=datetime.utcnow() - timedelta(days=30), location="/media_cache/movies/Film.mkv")
+    assert process_rules(item).action != Action.PROMOTE
 
 
 # ---------------------------------------------------------------------------
@@ -156,8 +176,8 @@ def test_ended_show_watched_unrated_returns_add_to_collection():
 
 
 def test_show_rated_low_deletes():
-    """Explicit low rating triggers delete regardless of show status."""
-    item = _show(user_rating=4, view_count=1)
+    """Explicit low rating (0–3) triggers delete regardless of show status."""
+    item = _show(user_rating=3, view_count=1)
     assert process_rules(item).action == Action.DELETE
 
 

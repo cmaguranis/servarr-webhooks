@@ -73,7 +73,7 @@ def PLEX_MOVIE_BATCH() -> int:
 
 
 def PLEX_COLLECTION_NAME() -> str:
-    return _get("plex", "collection_name", "Cleanup Queue")
+    return _get("plex", "collection_name", "Leaving Soon")
 
 
 def PLEX_WORKER_COUNT() -> int:
