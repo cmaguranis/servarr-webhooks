@@ -64,7 +64,6 @@ Infrastructure overrides (optional):
 | `TRANSCODE_SCHEDULE_PATH` | Transcode schedule file (default: `/config/data/transcode_schedule.json`) |
 | `PLEX_SCHEDULE_PATH` | Managarr schedule file (default: `/config/data/plex_cleanup_schedule.json`) |
 | `MEDIA_TEST_DB` | Test media job queue DB (default: `/config/data/media_test_queue.db`) |
-| `SONARR_TARGET_QUALITY_PROFILE_ID` | Quality profile ID to apply after first episode download |
 
 ### Runtime config (`/config/config.ini`)
 
@@ -86,7 +85,7 @@ temp_fallback = /transcode-temp  ; fallback when temp_primary is full
 [plex]
 collection_days = 30      ; days in Cleanup Queue before item is deleted
 movie_batch = 100         ; movies fetched per Plex API call
-collection_name = Cleanup Queue
+collection_name = "Leaving Soon"
 worker_count = 2
 
 [test_media]
@@ -148,7 +147,7 @@ Go to **Settings → Connect → + → Webhook** and configure:
 
 | Field | Value |
 |---|---|
-| **Name** | `servarr-webhooks` (or any label) |
+| **Name** | `transcode job webhook` (or any label) |
 | **URL** | `http://your-host:5001/transcode-webhook` |
 | **Method** | POST |
 | **Triggers** | ✔ On Import · ✔ On Upgrade |
@@ -161,7 +160,7 @@ Go to **Settings → Connect → + → Webhook** and configure:
 
 | Field | Value |
 |---|---|
-| **Name** | `servarr-webhooks` (or any label) |
+| **Name** | `transcode job webhook` (or any label) |
 | **URL** | `http://your-host:5001/transcode-webhook` |
 | **Method** | POST |
 | **Triggers** | ✔ On Import · ✔ On Upgrade |
@@ -327,11 +326,11 @@ Automatically categorises Plex media against a set of rules and enqueues cleanup
 
 | Condition | Action |
 |---|---|
-| User rating > 6 and in `/media_cache` | Promote to `/media` |
-| User rating > 6 | Do nothing |
-| User rating ≤ 6 | Delete |
-| Unrated, unwatched, added > 60 days ago | Add to collection |
-| Unrated, watched, last viewed > 14 days ago and added > 30 days ago | Add to collection |
+| Rating ≥ 8 and in `/media_cache` | Promote to `/media` |
+| Rating ≥ 8 | Do nothing |
+| Rating ≤ 3 | Delete |
+| Unrated or rated 4–7, unwatched, added > 60 days ago | Add to collection |
+| Unrated or rated 4–7, watched, last viewed > 14 days ago and added > 30 days ago | Add to collection |
 | In collection for ≥ `collection_days` | Delete |
 
 ### API
