@@ -52,17 +52,6 @@ def transcode_webhook():
 
     media_test = request.args.get("media_test", "").lower() == "true"
 
-    # Skip if already tagged as transcoded (bypass in media_test mode)
-    if not media_test:
-        svc = radarr_service if is_radarr else sonarr_service
-        try:
-            transcoded_tag_id = svc.get_or_create_tag("transcoded")
-            if transcoded_tag_id in (media_obj.get("tags") or []):
-                logger.info(f"Skipping already-transcoded: {file_info.get('path')}")
-                return ("", 200)
-        except Exception as e:
-            logger.warning(f"Could not check 'transcoded' tag — proceeding anyway: {e}")
-
     orig_lang = _parse_lang(
         (media_obj.get("originalLanguage") or {}).get("name") or media_info.get("audioLanguages", "")
     )
@@ -111,22 +100,17 @@ def enqueue_folder():
     if not os.path.isdir(folder):
         return ({"error": f"Directory does not exist: {folder}"}, 400)
 
-    # Build path → orig_lang map and transcoded paths set from Arr APIs
+    # Build path → orig_lang map from Arr APIs
     arr_lang_map: dict[str, str] = {}
-    arr_transcoded_paths: set[str] = set()
     try:
-        radarr_transcoded_tag_id = radarr_service.get_or_create_tag("transcoded")
         for path, movie in radarr_service.get_path_movie_map().items():
             lang = (movie.get("originalLanguage") or {}).get("name")
             if lang:
                 arr_lang_map[path] = lang
-            if radarr_transcoded_tag_id in (movie.get("tags") or []):
-                arr_transcoded_paths.add(path)
         logger.info(f"enqueue-folder: loaded {len(arr_lang_map)} Radarr path→lang entries")
     except Exception as e:
         logger.warning(f"enqueue-folder: Radarr lookup unavailable — {e}")
     try:
-        sonarr_transcoded_tag_id = sonarr_service.get_or_create_tag("transcoded")
         sonarr_count = 0
         for path, entry in sonarr_service.get_path_episode_map().items():
             series = entry["series"]
@@ -134,8 +118,6 @@ def enqueue_folder():
             if lang:
                 arr_lang_map[path] = lang
                 sonarr_count += 1
-            if sonarr_transcoded_tag_id in (series.get("tags") or []):
-                arr_transcoded_paths.add(path)
         logger.info(f"enqueue-folder: loaded {sonarr_count} Sonarr path→lang entries")
     except Exception as e:
         logger.warning(f"enqueue-folder: Sonarr lookup unavailable — {e}")
@@ -149,10 +131,6 @@ def enqueue_folder():
             if os.path.splitext(fname)[1].lower() not in MEDIA_EXTENSIONS:
                 continue
             path = os.path.join(dirpath, fname)
-            if path in arr_transcoded_paths:
-                logger.info(f"enqueue-folder: skipping already-transcoded {path}")
-                skipped.append(path)
-                continue
             try:
                 info = get_stream_info(path)
                 probe = extract_probe_summary(info)

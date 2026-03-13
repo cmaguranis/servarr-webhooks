@@ -161,3 +161,8 @@ def TRANSCODE_SCHEDULE_PATH() -> str:
 # [test_media] — infrastructure paths
 def MEDIA_TEST_DB() -> str:
     return _get("test_media", "db", "/config/data/media_test_queue.db")
+
+
+# [worker]
+def LOG_PATH() -> str:
+    return _get("worker", "log_path", "")

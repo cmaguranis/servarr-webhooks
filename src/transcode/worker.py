@@ -82,8 +82,6 @@ def _post_transcode(job_id: int, meta: dict):
     if not (arr_type and arr_id):
         return
     try:
-        svc = radarr_service if arr_type == "radarr" else sonarr_service
-        svc.add_tag(arr_id, "transcoded")
         if arr_type == "radarr":
             radarr_service.rescan_movie(arr_id)
         else:

@@ -1,5 +1,6 @@
 [worker]
 poll_interval = 120
+# log_path = /config/data/servarr-webhooks.log
 
 [transcode]
 cleanup_done_days = 7

@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import logging
+from logging.handlers import RotatingFileHandler
 from flask import Flask, request
 from waitress import serve
 
@@ -72,20 +73,34 @@ class _ColorFormatter(logging.Formatter):
         return _JOB_RE.sub(_color_job, result)
 
 
-_handler = logging.StreamHandler()
-_handler.setFormatter(_ColorFormatter(
-    fmt="[%(asctime)s] %(levelname)s %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-))
-logging.basicConfig(level=logging.INFO, handlers=[_handler])
+_fmt = "[%(asctime)s] %(levelname)s %(name)s: %(message)s"
+_datefmt = "%Y-%m-%d %H:%M:%S"
 
-# Bootstrap /config on first run
+_handler = logging.StreamHandler()
+_handler.setFormatter(_ColorFormatter(fmt=_fmt, datefmt=_datefmt))
+
+_handlers = [_handler]
+
+# Bootstrap /config before reading config so log_path is available
 config_path = os.getenv("CONFIG_PATH", "/config/config.ini")
 os.makedirs(os.path.dirname(config_path), exist_ok=True)
 os.makedirs(os.path.join(os.path.dirname(config_path), "data"), exist_ok=True)
 if not os.path.exists(config_path):
     src_default = os.path.join(os.path.dirname(__file__), "config.ini.default")
     shutil.copy(src_default, config_path)
+
+from src import config as _cfg  # noqa: E402
+
+_log_path = _cfg.LOG_PATH()
+if _log_path:
+    os.makedirs(os.path.dirname(_log_path), exist_ok=True)
+    _file_handler = RotatingFileHandler(
+        _log_path, maxBytes=10 * 1024 * 1024, backupCount=5
+    )
+    _file_handler.setFormatter(logging.Formatter(fmt=_fmt, datefmt=_datefmt))
+    _handlers.append(_file_handler)
+
+logging.basicConfig(level=logging.INFO, handlers=_handlers)
 
 from src import config
 from src.seerr.controller import bp as seerr_bp

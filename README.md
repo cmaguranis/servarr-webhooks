@@ -196,8 +196,17 @@ curl "http://localhost:5001/transcode/jobs?status=failed"
 
 One-line summary per job:
 ```bash
-curl "http://localhost:5001/transcode/jobs?status=done" | jq -r \
-  '.jobs[] | "[\(.updated_at)] [ID: \(.id)] \(.status | ascii_upcase) \(.meta.arr_type // "manual") | \(.path | split("/") | .[-1])"'
+curl "http://localhost:5001/transcode/jobs?status=done" | jq -r '
+  .jobs[] | [
+    "[\(.updated_at)]",
+    "[ID: \(.id)]",
+    (.status | ascii_upcase),
+    (.meta.arr_type // "manual"),
+    (.path | split("/") | .[-1]),
+    "\(.meta.codec // "?")@\(.meta.bitrate_kbps // "?")kbps",
+    (if .ffmpeg_cmd then "cmd=yes" else "cmd=no" end),
+    (if .output_probe then "probe=yes" else "probe=no" end)
+  ] | join(" | ")'
 ```
 
 #### Inspect a job

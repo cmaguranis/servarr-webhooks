@@ -27,6 +27,18 @@ def _collection_name() -> str:
     return config.PLEX_COLLECTION_NAME()
 
 
+def _remove_from_watchlist(plex, item, dry_run: bool, job_id: int):
+    try:
+        account = plex.myPlexAccount()
+        if dry_run:
+            logger.info(f"[job {job_id}] [dry_run] Would remove '{item.title}' from watchlist")
+        else:
+            account.removeFromWatchlist(item)
+            logger.info(f"[job {job_id}] Removed '{item.title}' from watchlist")
+    except Exception as e:
+        logger.warning(f"[job {job_id}] Could not remove '{item.title}' from watchlist: {e}")
+
+
 def _remove_from_collection(item, dry_run: bool, job_id: int) -> bool:
     """Remove item from the cleanup collection if present. Returns True if removed."""
     name = _collection_name()
@@ -150,6 +162,9 @@ def _delete(plex, plex_key: int, meta: dict, job_id: int, dry_run: bool):
                 logger.info(f"[job {job_id}] Deleted series '{title}' (sonarr_id={series['id']})")
     else:
         raise ValueError(f"delete: unknown media_type {meta.get('media_type')!r}")
+
+    item = plex.fetchItem(plex_key)
+    _remove_from_watchlist(plex, item, dry_run, job_id)
 
 
 _DISPATCH = {
