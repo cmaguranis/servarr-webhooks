@@ -27,6 +27,13 @@ register_job_routes(bp, transcode_queue, "/transcode")
 register_schedule_routes(bp, schedule, "/transcode")
 
 
+def _quality_id(quality):
+    if not isinstance(quality, dict):
+        return "<no-quality>"
+    val = quality.get("quality", {}).get("id")
+    return val if val is not None else "<no-quality>"
+
+
 @bp.route("/transcode-webhook", methods=["POST"])
 def transcode_webhook():
     payload = request.get_json(silent=True) or {}
@@ -70,7 +77,7 @@ def transcode_webhook():
         "arr_type": arr_type,
         "arr_id": media_obj.get("id"),
         "quality_profile_id": media_obj.get("qualityProfileId"),
-        "current_quality_id": (file_info.get("quality") or {}).get("quality", {}).get("id"),
+        "current_quality_id": _quality_id(file_info.get("quality")),
         "dry_run": request.args.get("dry_run", "").lower() == "true",
         "media_test": media_test,
         "start_sec": int(start_sec_raw) if start_sec_raw else None,
