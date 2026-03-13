@@ -38,18 +38,11 @@ def _run_loudnorm(path: str, audio_map: str, duration: float | None) -> dict | N
 
 def get_loudness_stats(
     path: str,
-    orig_lang: str | None = None,
+    audio_index: int = 0,
     duration: float | None = None,
 ) -> dict | None:
-    # Skip the first 10% of the file (intro/credits), then sample up to 5 minutes.
-    # Prefer language-tagged stream; fall back to first audio stream (0:a:0) on failure
-    # — EAC3 Atmos language selectors can fail to match even when the language is correct.
-    audio_map = f"0:a:m:language:{orig_lang}" if orig_lang else "0:a:0"
-    result = _run_loudnorm(path, audio_map, duration)
-    if result is None and orig_lang:
-        logger.warning(f"Loudnorm failed with language map '{audio_map}', retrying with 0:a:0")
-        result = _run_loudnorm(path, "0:a:0", duration)
-    return result
+    # Use absolute stream index — unambiguous even when language tags are missing/wrong.
+    return _run_loudnorm(path, f"0:{audio_index}", duration)
 
 
 def _audio_needs(stats: dict | None) -> tuple[bool, bool]:

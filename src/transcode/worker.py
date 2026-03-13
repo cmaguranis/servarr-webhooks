@@ -1,6 +1,7 @@
 import logging
 import os
 import random
+from pathlib import Path
 
 from src import config, radarr_service, sonarr_service
 from src.test_media.slice import build_output_path
@@ -10,7 +11,7 @@ from src.transcode.probe import extract_probe_summary, get_stream_info
 from src.transcode.queue import _queue, cleanup_jobs
 from src.worker_base import SkipJobError, Worker
 
-_SLICE_DURATION = 30
+_SLICE_DURATION = 120
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,16 @@ def _execute(path: str, meta: dict, job_id: int, dry_run: bool):
     start_sec = None
     slice_duration = None
 
-    if meta.get("media_test"):
+    if meta.get("full"):
+        p = Path(path)
+        output_path = os.path.join(config.TEST_MEDIA_OUTPUT_DIR(), f"{p.parent.name}__{p.name}")
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        logger.info(f"[job {job_id}] full movie mode → {output_path}")
+    elif meta.get("output_path"):
+        output_path = meta["output_path"]
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        logger.info(f"[job {job_id}] output_path override → {output_path}")
+    elif meta.get("media_test"):
         slice_duration = meta.get("slice_duration") or _SLICE_DURATION
 
         info = get_stream_info(path)

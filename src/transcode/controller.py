@@ -83,6 +83,82 @@ def transcode_webhook():
     return ("", 202)
 
 
+@bp.route("/transcode/enqueue-file", methods=["POST"])
+def enqueue_file():
+    """Enqueue a single file for transcoding.
+
+    Body (JSON): {"path": "/media/movie.mkv"}
+    Query params: ?dry_run=true  ?media_test=true
+    """
+    dry_run = request.args.get("dry_run", "").lower() == "true"
+    media_test = request.args.get("media_test", "").lower() == "true"
+    full = request.args.get("full", "").lower() == "true"
+    body = request.get_json(silent=True) or {}
+    path = (body.get("path") or "").strip()
+
+    if not path:
+        return ({"error": "Missing required field: path"}, 400)
+    if not os.path.isfile(path):
+        return ({"error": f"File does not exist: {path}"}, 400)
+
+    try:
+        info = get_stream_info(path)
+        probe = extract_probe_summary(info)
+        streams = info.get("streams") or []
+        video = next((s for s in streams if s.get("codec_type") == "video"), {})
+        a_streams = [s for s in streams if s.get("codec_type") == "audio"]
+
+        orig_lang = body.get("orig_lang")
+        if not orig_lang:
+            arr_lang = None
+            try:
+                movie = radarr_service.get_path_movie_map().get(path)
+                if movie:
+                    arr_lang = (movie.get("originalLanguage") or {}).get("name")
+            except Exception:
+                pass
+            if not arr_lang:
+                try:
+                    entry = sonarr_service.get_path_episode_map().get(path)
+                    if entry:
+                        arr_lang = (entry["series"].get("originalLanguage") or {}).get("name")
+                except Exception:
+                    pass
+            if arr_lang:
+                orig_lang = _parse_lang(arr_lang)
+            else:
+                eng_stream = next((s for s in a_streams if (s.get("tags") or {}).get("language") == "eng"), None)
+                audio = eng_stream or (a_streams[0] if a_streams else {})
+                orig_lang = (audio.get("tags") or {}).get("language")
+
+        meta = {
+            "codec": video.get("codec_name"),
+            "bitrate_kbps": int(float(info.get("format", {}).get("bit_rate", 0))) // 1000 or None,
+            "orig_lang": orig_lang,
+            "has_51": any(
+                (s.get("channels") or 0) > 5
+                for s in a_streams
+                if (s.get("tags") or {}).get("language") == orig_lang
+            ),
+            "arr_type": None,
+            "arr_id": None,
+            "dry_run": dry_run,
+            "media_test": media_test,
+            "full": full,
+        }
+    except Exception as e:
+        logger.warning(f"enqueue-file: ffprobe failed for {path} — {e}")
+        return ({"error": f"ffprobe failed: {e}"}, 500)
+
+    job_id = enqueue_job(path, meta, probe=probe)
+    if job_id is not None:
+        logger.info(f"enqueue-file: enqueued job {job_id} for {path}")
+        return ({"job_id": job_id, "path": path}, 202)
+    else:
+        logger.info(f"enqueue-file: skipped duplicate {path}")
+        return ({"skipped": True, "path": path}, 200)
+
+
 @bp.route("/transcode/enqueue-folder", methods=["POST"])
 def enqueue_folder():
     """Scan a folder for media files and enqueue transcode jobs for each.

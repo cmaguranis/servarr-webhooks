@@ -143,7 +143,7 @@ def transcode_file(
 
         duration = float(fmt.get("duration") or 0)
         logger.info(f"{prefix}Running loudness analysis (5 min window, skip first 10%)...")
-        stats = get_loudness_stats(path, orig_lang=orig_lang, duration=duration)
+        stats = get_loudness_stats(path, audio_index=audio_abs_idx, duration=duration)
         needs_loudnorm, needs_dynaudnorm = _audio_needs(stats)
         needs_audio = needs_loudnorm or needs_dynaudnorm
         if stats:
