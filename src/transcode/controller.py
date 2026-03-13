@@ -99,9 +99,10 @@ def enqueue_folder():
     """Scan a folder for media files and enqueue transcode jobs for each.
 
     Body (JSON): {"path": "/data/media_test"}
-    Query params: ?dry_run=true
+    Query params: ?dry_run=true  ?media_test=true
     """
     dry_run = request.args.get("dry_run", "").lower() == "true"
+    media_test = request.args.get("media_test", "").lower() == "true"
     body = request.get_json(silent=True) or {}
     folder = (body.get("path") or "").strip()
 
@@ -186,6 +187,7 @@ def enqueue_folder():
                     "arr_type": None,
                     "arr_id": None,
                     "dry_run": dry_run,
+                    "media_test": media_test,
                 }
             except Exception as e:
                 logger.warning(f"enqueue-folder: ffprobe failed for {path} — {e}")

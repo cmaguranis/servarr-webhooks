@@ -259,7 +259,7 @@ curl -X POST http://localhost:5001/transcode/enqueue-folder \
   -d '{"path": "/data/media_test"}'
 ```
 
-Add `?dry_run=true` to preview without creating jobs.
+Query params: `?dry_run=true` enqueues jobs in dry-run mode (analyse without encoding). `?media_test=true` writes output to `/data/media_test` instead of overwriting the source. Both can be combined.
 
 ```json
 {
@@ -313,15 +313,15 @@ Key fields: `pix_fmt` (should be `yuv420p`, not `yuv420p10le`), `color_transfer`
 
 #### Testing on real media without risk
 
-Set `?media_test=true` in the webhook URL. Encodes write to `/data/media_test` — source files are never touched. To run the full encode pipeline on a specific file:
+Use `?media_test=true` on `enqueue-folder` or the webhook URL. Encodes write to `/data/media_test` — source files are never touched.
 
 ```bash
-# Enqueue one file in media_test mode
+# Enqueue a folder in media_test mode (can combine with dry_run)
 curl -X POST "http://localhost:5001/transcode/enqueue-folder?media_test=true" \
   -H "Content-Type: application/json" \
   -d '{"path": "/media/Movies/The Dark Knight (2008)"}'
 
-# Then enable the schedule to process it
+# Enable the schedule to process jobs
 curl -X POST "http://localhost:5001/transcode/schedule?enabled=true"
 ```
 
@@ -383,7 +383,7 @@ curl -X POST http://localhost:5001/import-scan \
 **Already in Radarr/Sonarr** — enqueue directly by pointing at the folder:
 
 ```bash
-# Dry-run first to preview
+# Enqueue in dry-run mode first (analyses without encoding)
 curl -X POST "http://localhost:5001/transcode/enqueue-folder?dry_run=true" \
   -H "Content-Type: application/json" \
   -d '{"path": "/media/Movies/The Dark Knight (2008)"}'
