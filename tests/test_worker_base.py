@@ -166,29 +166,58 @@ class TestPausedFn:
         worker, _ = _make_worker(paused_fn=paused_fn)
         assert worker._paused_fn is paused_fn
 
-    def test_loop_skips_claim_when_paused(self):
-        """When paused_fn returns True, claim_pending_jobs must not be called."""
+    def test_loop_defers_non_dry_run_when_paused(self):
+        """When paused, non-dry-run jobs are claimed then immediately deferred."""
 
         paused_fn = MagicMock(return_value=True)
-        worker, queue = _make_worker(paused_fn=paused_fn)
+        execute_fn = MagicMock()
+        worker, queue = _make_worker(paused_fn=paused_fn, execute_fn=execute_fn)
+        queue.claim_pending_jobs.return_value = [_make_job(job_id=1, meta={})]
 
         original_wait = worker._stop_flag.wait
-
         call_count = 0
 
         def fake_wait(timeout=None):
             nonlocal call_count
             call_count += 1
-            if call_count >= 2:
+            if call_count >= 1:
                 worker._stop_flag.set()
-            return original_wait(0)  # return immediately
+            return original_wait(0)
 
         worker._stop_flag.wait = fake_wait
         from concurrent.futures import ThreadPoolExecutor
         worker._executor = ThreadPoolExecutor(max_workers=1)
         worker._loop()
 
-        queue.claim_pending_jobs.assert_not_called()
+        queue.claim_pending_jobs.assert_called()
+        queue.defer_job.assert_called_once_with(1)
+        execute_fn.assert_not_called()
+
+    def test_loop_runs_dry_run_when_paused(self):
+        """When paused, dry-run jobs are still executed."""
+
+        paused_fn = MagicMock(return_value=True)
+        execute_fn = MagicMock()
+        worker, queue = _make_worker(paused_fn=paused_fn, execute_fn=execute_fn)
+        queue.claim_pending_jobs.return_value = [_make_job(job_id=1, meta={"dry_run": True})]
+
+        original_wait = worker._stop_flag.wait
+        call_count = 0
+
+        def fake_wait(timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 1:
+                worker._stop_flag.set()
+            return original_wait(0)
+
+        worker._stop_flag.wait = fake_wait
+        from concurrent.futures import ThreadPoolExecutor
+        worker._executor = ThreadPoolExecutor(max_workers=1)
+        worker._loop()
+
+        execute_fn.assert_called_once()
+        queue.defer_job.assert_not_called()
 
     def test_loop_claims_when_not_paused(self):
         """When paused_fn returns False, claim_pending_jobs is called."""

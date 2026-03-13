@@ -153,7 +153,7 @@ def transcode_file(
 
         if not needs_video and not needs_audio and not needs_sub_strip and not needs_stereo_encode:
             logger.info(f"{prefix}No transcode needed: '{path}'")
-            return
+            return None
 
         # Build ffmpeg command — use QSV hw decode when available to keep
         # frames on GPU and avoid CPU↔GPU copy before hevc_qsv encoding.
@@ -235,7 +235,7 @@ def transcode_file(
                 f"needs_video={needs_video} needs_audio={needs_audio} needs_sub_strip={needs_sub_strip} needs_stereo={needs_stereo_encode}"
             )
             logger.info(f"{prefix}[DRY RUN] ffmpeg command: {shlex.join(cmd + ['<output.mkv>'])}")
-            return
+            return shlex.join(cmd + ["<output.mkv>"])
 
         file_size = os.path.getsize(path)
         temp_dir = _pick_temp_dir(file_size)
@@ -257,6 +257,7 @@ def transcode_file(
             except OSError:
                 shutil.copy2(tmp, dest)  # cross-device fallback; finally block cleans tmp
             logger.info(f"{prefix}Transcode complete: '{dest}'")
+            return shlex.join(cmd + [dest])
         finally:
             if os.path.exists(tmp):
                 os.remove(tmp)

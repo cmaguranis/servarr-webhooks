@@ -32,7 +32,8 @@ def register_job_routes(bp: Blueprint, queue, url_prefix: str):
 
     @bp.route(f"{url_prefix}/jobs/<int:job_id>/retry", methods=["POST"])
     def retry_job(job_id):
-        dry_run = request.args.get("dry_run", "").lower() == "true"
+        dry_run_param = request.args.get("dry_run")
+        dry_run = dry_run_param.lower() == "true" if dry_run_param is not None else None
         found = queue.requeue_job(job_id, dry_run=dry_run)
         if not found:
             return {"error": f"Job {job_id} not found"}, 404

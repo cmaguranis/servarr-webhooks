@@ -18,9 +18,10 @@ ENV CONFIG_PATH='/config/config.ini'
 
 WORKDIR /app
 ADD pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-install-project
 
 ADD main.py config.ini.default ./
 ADD src/ ./src/
 
-CMD ["uv", "run", "python", "main.py"]
+ENV PATH="/app/.venv/bin:$PATH"
+CMD ["python", "main.py"]

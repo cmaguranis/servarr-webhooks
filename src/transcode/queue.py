@@ -20,8 +20,8 @@ def _compute_priority(meta: dict) -> int:
     return 1 if video_transcode_needed(meta.get("codec"), meta.get("bitrate_kbps")) else 2
 
 
-def enqueue_job(path: str, meta: dict) -> int | None:
-    return _queue.enqueue_job(path, meta, _compute_priority(meta))
+def enqueue_job(path: str, meta: dict, probe: dict | None = None) -> int | None:
+    return _queue.enqueue_job(path, meta, _compute_priority(meta), probe=probe)
 
 
 def cleanup_jobs():
@@ -35,3 +35,4 @@ mark_failed        = _queue.mark_failed
 list_jobs          = _queue.list_jobs
 requeue_job        = _queue.requeue_job
 clear_jobs         = _queue.clear_jobs
+update_result      = _queue.update_result

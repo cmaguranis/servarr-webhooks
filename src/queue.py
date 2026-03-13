@@ -8,14 +8,17 @@ logger = logging.getLogger(__name__)
 
 _SCHEMA_TEMPLATE = """
 CREATE TABLE IF NOT EXISTS {table} (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  path       TEXT NOT NULL UNIQUE,
-  meta       TEXT,
-  status     TEXT NOT NULL DEFAULT 'pending',
-  priority   INTEGER NOT NULL DEFAULT 1,
-  error      TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  path         TEXT NOT NULL UNIQUE,
+  meta         TEXT,
+  probe        TEXT,
+  output_probe TEXT,
+  ffmpeg_cmd   TEXT,
+  status       TEXT NOT NULL DEFAULT 'pending',
+  priority     INTEGER NOT NULL DEFAULT 1,
+  error        TEXT,
+  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 )
 """
 
@@ -42,6 +45,9 @@ class JobQueue:
                 for migration in [
                     f"ALTER TABLE {self._table} ADD COLUMN priority INTEGER NOT NULL DEFAULT 1",
                     f"ALTER TABLE {self._table} ADD COLUMN error TEXT",
+                    f"ALTER TABLE {self._table} ADD COLUMN probe TEXT",
+                    f"ALTER TABLE {self._table} ADD COLUMN output_probe TEXT",
+                    f"ALTER TABLE {self._table} ADD COLUMN ffmpeg_cmd TEXT",
                 ]:
                     try:
                         conn.execute(migration)
@@ -55,13 +61,13 @@ class JobQueue:
                 conn.close()
         logger.info(f"{self._table} DB initialized")
 
-    def enqueue_job(self, path: str, meta: dict, priority: int = 1) -> int | None:
+    def enqueue_job(self, path: str, meta: dict, priority: int = 1, probe: dict | None = None) -> int | None:
         with self._lock:
             conn = self._connect()
             try:
                 cur = conn.execute(
-                    f"INSERT OR IGNORE INTO {self._table} (path, meta, status, priority) VALUES (?, ?, 'pending', ?)",
-                    (path, json.dumps(meta), priority),
+                    f"INSERT OR IGNORE INTO {self._table} (path, meta, probe, status, priority) VALUES (?, ?, ?, 'pending', ?)",
+                    (path, json.dumps(meta), json.dumps(probe) if probe is not None else None, priority),
                 )
                 conn.commit()
                 job_id = cur.lastrowid if cur.rowcount else None
@@ -149,8 +155,9 @@ class JobQueue:
             finally:
                 conn.close()
 
-    def requeue_job(self, job_id: int, dry_run: bool = False) -> bool:
-        """Reset a job to pending. Returns False if job not found or currently processing."""
+    def requeue_job(self, job_id: int, dry_run: bool | None = None) -> bool:
+        """Reset a job to pending. Returns False if job not found or currently processing.
+        dry_run=None preserves the existing value in meta."""
         with self._lock:
             conn = self._connect()
             try:
@@ -162,13 +169,27 @@ class JobQueue:
                 if row["status"] == "processing":
                     return False
                 meta = json.loads(row["meta"] or "{}")
-                meta["dry_run"] = dry_run
+                if dry_run is not None:
+                    meta["dry_run"] = dry_run
                 conn.execute(
                     f"UPDATE {self._table} SET status='pending', meta=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
                     (json.dumps(meta), job_id),
                 )
                 conn.commit()
                 return True
+            finally:
+                conn.close()
+
+    def update_result(self, job_id: int, ffmpeg_cmd: str | None = None, output_probe: dict | None = None):
+        """Store the ffmpeg command and output probe after a completed encode."""
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute(
+                    f"UPDATE {self._table} SET ffmpeg_cmd=?, output_probe=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (ffmpeg_cmd, json.dumps(output_probe) if output_probe is not None else None, job_id),
+                )
+                conn.commit()
             finally:
                 conn.close()
 
@@ -224,8 +245,8 @@ class QueueModule:
 
     def init_db(self): self._q.init_db()
 
-    def enqueue_job(self, path: str, meta: dict, priority: int = 1) -> int | None:
-        return self._q.enqueue_job(path, meta, priority)
+    def enqueue_job(self, path: str, meta: dict, priority: int = 1, probe: dict | None = None) -> int | None:
+        return self._q.enqueue_job(path, meta, priority, probe)
 
     def claim_pending_jobs(self, limit: int = 10) -> list: return self._q.claim_pending_jobs(limit)
 
@@ -237,7 +258,9 @@ class QueueModule:
 
     def list_jobs(self, status: str | None = None) -> list: return self._q.list_jobs(status)
 
-    def requeue_job(self, job_id: int, dry_run: bool = False) -> bool: return self._q.requeue_job(job_id, dry_run)
+    def requeue_job(self, job_id: int, dry_run: bool | None = None) -> bool: return self._q.requeue_job(job_id, dry_run)
+
+    def update_result(self, job_id: int, ffmpeg_cmd: str | None = None, output_probe: dict | None = None): self._q.update_result(job_id, ffmpeg_cmd, output_probe)
 
     def defer_job(self, job_id: int): self._q.defer_job(job_id)
 

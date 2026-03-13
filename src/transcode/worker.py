@@ -6,7 +6,7 @@ from src import config, radarr_service, sonarr_service
 from src.test_media.slice import build_output_path
 from src.transcode import schedule
 from src.transcode.encode import transcode_file
-from src.transcode.probe import get_stream_info
+from src.transcode.probe import extract_probe_summary, get_stream_info
 from src.transcode.queue import _queue, cleanup_jobs
 from src.worker_base import SkipJobError, Worker
 
@@ -52,7 +52,7 @@ def _execute(path: str, meta: dict, job_id: int, dry_run: bool):
         except Exception as e:
             logger.warning(f"[job {job_id}] Could not check upgrade status: {e}")
 
-    transcode_file(
+    cmd_str = transcode_file(
         path,
         codec=meta.get("codec"),
         bitrate_kbps=meta.get("bitrate_kbps"),
@@ -64,6 +64,16 @@ def _execute(path: str, meta: dict, job_id: int, dry_run: bool):
         start_sec=start_sec,
         slice_duration=slice_duration,
     )
+
+    if cmd_str:
+        out_probe = None
+        if not dry_run:
+            dest = output_path or path
+            try:
+                out_probe = extract_probe_summary(get_stream_info(dest))
+            except Exception as e:
+                logger.warning(f"[job {job_id}] Could not probe output: {e}")
+        _queue.update_result(job_id, ffmpeg_cmd=cmd_str, output_probe=out_probe)
 
 
 def _post_transcode(job_id: int, meta: dict):

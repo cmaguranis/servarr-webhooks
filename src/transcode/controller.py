@@ -17,7 +17,7 @@ from src.media_extensions import MEDIA_EXTENSIONS
 from src.test_media.queue import get_job_by_path as get_media_test_job
 from src.transcode import queue as transcode_queue
 from src.transcode import schedule
-from src.transcode.probe import get_stream_info
+from src.transcode.probe import extract_probe_summary, get_stream_info
 from src.transcode.queue import enqueue_job
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,13 @@ def transcode_webhook():
         "slice_duration": int(slice_duration_raw) if slice_duration_raw else None,
     }
 
-    enqueue_job(file_info["path"], meta)
+    probe = None
+    try:
+        probe = extract_probe_summary(get_stream_info(file_info["path"]))
+    except Exception as e:
+        logger.warning(f"Could not probe {file_info.get('path')} at enqueue: {e}")
+
+    enqueue_job(file_info["path"], meta, probe=probe)
     return ("", 202)
 
 
@@ -148,6 +154,7 @@ def enqueue_folder():
                 continue
             try:
                 info = get_stream_info(path)
+                probe = extract_probe_summary(info)
                 streams = info.get("streams") or []
                 video = next((s for s in streams if s.get("codec_type") == "video"), {})
                 a_streams = [s for s in streams if s.get("codec_type") == "audio"]
@@ -185,7 +192,7 @@ def enqueue_folder():
                 errors.append({"path": path, "error": str(e)})
                 continue
 
-            job_id = enqueue_job(path, meta)
+            job_id = enqueue_job(path, meta, probe=probe)
             if job_id is not None:
                 logger.info(f"enqueue-folder: enqueued job {job_id} for {path}")
                 enqueued.append({"job_id": job_id, "path": path})

@@ -76,4 +76,7 @@ def _build_audio_filter(stats: dict | None, needs_loudnorm: bool, needs_dynaudno
         parts.append("loudnorm=I=-16:LRA=7:TP=-1.5")
     if needs_dynaudnorm:
         parts.append("dynaudnorm=f=150:g=15")
+    # loudnorm can output at 192kHz internally; re-clamp before the encoder.
+    if needs_loudnorm:
+        parts.append("aresample=48000")
     return ",".join(parts)

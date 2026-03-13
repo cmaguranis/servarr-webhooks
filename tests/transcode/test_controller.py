@@ -33,6 +33,9 @@ def mocks():
             "sonarr_tag": stack.enter_context(
                 patch("src.transcode.controller.sonarr_service.get_or_create_tag", return_value=99)
             ),
+            "probe": stack.enter_context(
+                patch("src.transcode.controller.get_stream_info", return_value=_PROBE_RESULT)
+            ),
             "enqueue": stack.enter_context(
                 patch("src.transcode.controller.enqueue_job")
             ),
@@ -90,6 +93,17 @@ SONARR_PAYLOAD = {
             "audioLanguages": "Japanese",
         },
     },
+}
+
+
+_PROBE_RESULT = {
+    "format": {"bit_rate": "8000000", "format_name": "matroska", "duration": "7200.0", "size": "8000000000"},
+    "streams": [
+        {"codec_type": "video", "codec_name": "hevc", "profile": "Main", "level": 150,
+         "pix_fmt": "yuv420p", "width": 1920, "height": 1080, "avg_frame_rate": "24000/1001"},
+        {"codec_type": "audio", "codec_name": "eac3", "channels": 8, "index": 1,
+         "tags": {"language": "eng"}},
+    ],
 }
 
 
@@ -384,16 +398,6 @@ class TestRetryJob:
 # ---------------------------------------------------------------------------
 # POST /transcode/enqueue-folder
 # ---------------------------------------------------------------------------
-
-_PROBE_RESULT = {
-    "format": {"bit_rate": "8000000"},
-    "streams": [
-        {"codec_type": "video", "codec_name": "hevc"},
-        {"codec_type": "audio", "codec_name": "eac3", "channels": 8,
-         "tags": {"language": "eng"}},
-    ],
-}
-
 
 @pytest.fixture
 def folder_mocks():

@@ -102,11 +102,18 @@ class Worker:
         last_cleanup = 0.0
         while not self._stop_flag.is_set():
             try:
-                if self._paused_fn and self._paused_fn():
-                    self._stop_flag.wait(timeout=config.WORKER_POLL_INTERVAL())
-                    continue
+                paused = self._paused_fn and self._paused_fn()
 
                 jobs = self._queue.claim_pending_jobs(limit=self._worker_count)
+                if paused and jobs:
+                    runnable = []
+                    for job in jobs:
+                        if json.loads(job.get("meta") or "{}").get("dry_run"):
+                            runnable.append(job)
+                        else:
+                            self._queue.defer_job(job["id"])
+                    jobs = runnable
+
                 if jobs:
                     futures = [self._executor.submit(self._run, job) for job in jobs]
                     wait(futures, return_when=ALL_COMPLETED)

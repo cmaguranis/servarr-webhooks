@@ -37,7 +37,7 @@ def list_jobs(status: str | None = None) -> list:
     return _q().list_jobs(status)
 
 
-def requeue_job(job_id: int, dry_run: bool = False) -> bool:
+def requeue_job(job_id: int, dry_run: bool | None = None) -> bool:
     return _q().requeue_job(job_id, dry_run)
 
 
