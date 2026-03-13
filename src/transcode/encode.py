@@ -223,6 +223,17 @@ def transcode_file(
             cmd += ["-c:s", "copy"]
 
         if dry_run:
+            logger.info(
+                f"{prefix}[DRY RUN] source media info: "
+                f"video={codec} profile={v_stream.get('profile')} level={v_stream.get('level')} "
+                f"pix_fmt={v_stream.get('pix_fmt')} "
+                f"{v_stream.get('width')}x{v_stream.get('height')} "
+                f"fps={v_stream.get('avg_frame_rate')} field_order={v_stream.get('field_order', 'progressive')} "
+                f"color_space={v_stream.get('color_space')} color_transfer={v_stream.get('color_transfer')} "
+                f"audio={target_audio.get('codec_name')} channels={target_audio.get('channels')} "
+                f"sample_rate={target_audio.get('sample_rate')} "
+                f"needs_video={needs_video} needs_audio={needs_audio} needs_sub_strip={needs_sub_strip} needs_stereo={needs_stereo_encode}"
+            )
             logger.info(f"{prefix}[DRY RUN] ffmpeg command: {shlex.join(cmd + ['<output.mkv>'])}")
             return
 
