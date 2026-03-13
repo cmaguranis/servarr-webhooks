@@ -30,6 +30,14 @@ def register_job_routes(bp: Blueprint, queue, url_prefix: str):
         logger.info(f"Cleared {deleted} {url_prefix} jobs with status={status}")
         return {"deleted": deleted}, 200
 
+    @bp.route(f"{url_prefix}/jobs/<int:job_id>", methods=["DELETE"])
+    def delete_job(job_id):
+        found = queue.delete_job(job_id)
+        if not found:
+            return {"error": f"Job {job_id} not found"}, 404
+        logger.info(f"Deleted {url_prefix} job {job_id}")
+        return "", 204
+
     @bp.route(f"{url_prefix}/jobs/<int:job_id>/retry", methods=["POST"])
     def retry_job(job_id):
         dry_run_param = request.args.get("dry_run")

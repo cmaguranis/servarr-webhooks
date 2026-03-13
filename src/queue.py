@@ -207,6 +207,19 @@ class JobQueue:
             finally:
                 conn.close()
 
+    def delete_job(self, job_id: int) -> bool:
+        """Delete a single job by ID. Returns False if not found."""
+        with self._lock:
+            conn = self._connect()
+            try:
+                cur = conn.execute(
+                    f"DELETE FROM {self._table} WHERE id=?", (job_id,)
+                )
+                conn.commit()
+                return cur.rowcount > 0
+            finally:
+                conn.close()
+
     def clear_jobs(self, status: str) -> int:
         """Delete all jobs with the given status. Returns the number of rows deleted."""
         with self._lock:
@@ -263,6 +276,8 @@ class QueueModule:
     def update_result(self, job_id: int, ffmpeg_cmd: str | None = None, output_probe: dict | None = None): self._q.update_result(job_id, ffmpeg_cmd, output_probe)
 
     def defer_job(self, job_id: int): self._q.defer_job(job_id)
+
+    def delete_job(self, job_id: int) -> bool: return self._q.delete_job(job_id)
 
     def clear_jobs(self, status: str) -> int: return self._q.clear_jobs(status)
 

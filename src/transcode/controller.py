@@ -52,6 +52,17 @@ def transcode_webhook():
 
     media_test = request.args.get("media_test", "").lower() == "true"
 
+    # Skip if already tagged as transcoded (bypass in media_test mode)
+    if not media_test:
+        svc = radarr_service if is_radarr else sonarr_service
+        try:
+            transcoded_tag_id = svc.get_or_create_tag("transcoded")
+            if transcoded_tag_id in (media_obj.get("tags") or []):
+                logger.info(f"Skipping already-transcoded: {file_info.get('path')}")
+                return ("", 200)
+        except Exception as e:
+            logger.warning(f"Could not check 'transcoded' tag — proceeding anyway: {e}")
+
     orig_lang = _parse_lang(
         (media_obj.get("originalLanguage") or {}).get("name") or media_info.get("audioLanguages", "")
     )

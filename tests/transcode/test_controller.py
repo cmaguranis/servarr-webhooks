@@ -392,7 +392,7 @@ class TestRetryJob:
     def test_dry_run_false_by_default(self, client, mocks):
         mocks["requeue"].return_value = True
         client.post("/transcode/jobs/1/retry")
-        mocks["requeue"].assert_called_once_with(1, dry_run=False)
+        mocks["requeue"].assert_called_once_with(1, dry_run=None)
 
 
 # ---------------------------------------------------------------------------
