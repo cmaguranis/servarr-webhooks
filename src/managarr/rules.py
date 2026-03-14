@@ -88,21 +88,21 @@ def process_rules(item: MovieMetadata | ShowMetadata) -> RuleResult:
 
     # Rated 4–7: fall through to unrated time-based rules
 
-    # Unrated + unwatched + added > 60 days
+    # Unrated + unwatched + added > unwatched_days
     if (
         item.view_count == 0
         and item.date_added is not None
-        and (now - item.date_added).days > 60
+        and (now - item.date_added).days > config.PLEX_UNWATCHED_DAYS()
     ):
         return _result(item, Action.ADD_TO_COLLECTION)
 
-    # Unrated + watched + last viewed > 14 days + added > 30 days
+    # Unrated + watched + last viewed > watched_last_viewed_days + added > watched_added_days
     if (
         item.view_count > 0
         and item.last_viewed is not None
-        and (now - item.last_viewed).days > 14
+        and (now - item.last_viewed).days > config.PLEX_WATCHED_LAST_VIEWED_DAYS()
         and item.date_added is not None
-        and (now - item.date_added).days > 30
+        and (now - item.date_added).days > config.PLEX_WATCHED_ADDED_DAYS()
     ):
         return _result(item, Action.ADD_TO_COLLECTION)
 

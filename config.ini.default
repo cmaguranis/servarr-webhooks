@@ -16,7 +16,10 @@ schedule_path = /config/data/transcode_schedule.json
 [plex]
 baseurl =
 token =
-collection_days = 30
+collection_days = 14
+unwatched_days = 30
+watched_last_viewed_days = 14
+watched_added_days = 14
 movie_batch = 100
 collection_name = Leaving Soon
 worker_count = 2

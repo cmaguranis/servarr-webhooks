@@ -12,6 +12,7 @@ A collection of webhooks used by different *arr services — Overseerr, Radarr, 
    * [Radarr (v6+)](#radarr-v6)
    * [Sonarr (v4+)](#sonarr-v4)
    * [Dry-run mode](#dry-run-mode)
+   * [Enqueue a single file](#enqueue-a-single-file)
    * [Enqueue a folder](#enqueue-a-folder)
 - [Manual Import Scan](#manual-import-scan)
 - [Transcoding Manually Added Media](#transcoding-manually-added-media)
@@ -84,7 +85,10 @@ temp_primary = /dev/shm          ; fast temp dir (uses RAM, needs shm_size in co
 temp_fallback = /transcode-temp  ; fallback when temp_primary is full
 
 [plex]
-collection_days = 30      ; days in Leaving Soon before item is deleted
+collection_days = 14      ; days in Leaving Soon before item is deleted
+unwatched_days = 30       ; days since added before an unwatched item is added to collection
+watched_last_viewed_days = 14  ; days since last viewed before a watched item is added to collection
+watched_added_days = 14   ; minimum days since added for the watched rule to apply
 movie_batch = 100         ; movies fetched per Plex API call
 collection_name = Leaving Soon
 worker_count = 2
@@ -135,11 +139,12 @@ Use this JSON payload template:
 Automatically transcodes newly imported or upgraded files to HEVC with normalized audio. Jobs are queued in SQLite and processed by a background worker using Intel QSV hardware acceleration.
 
 **What it does:**
+- Skips files already tagged `transcoded` in Radarr/Sonarr (bypass with `?media_test=true`)
 - Skips files already encoded as HEVC at ≤ 8 Mbps
 - Skips files whose loudness is already within target (LUFS and LRA checks)
 - Normalizes loud/quiet audio with `loudnorm` and compresses high dynamic range with `dynaudnorm`
 - For 5.1 sources: creates a normalized stereo AAC track + normalized 5.1 AC3 track
-- Tags processed files as `transcoded` in Radarr/Sonarr so they are never re-queued
+- Tags processed files as `transcoded` in Radarr/Sonarr after encode completes
 - Issues a disk rescan in Radarr/Sonarr after the transcode completes
 
 ### Setup
@@ -256,6 +261,37 @@ curl -X POST "http://localhost:5001/transcode/jobs/58/retry?dry_run=true"
 ```bash
 curl -X DELETE "http://localhost:5001/transcode/jobs?status=done"
 curl -X DELETE "http://localhost:5001/transcode/jobs?status=failed"
+```
+
+#### Enqueue a single file
+
+Enqueue a transcode job for one specific file.
+
+```bash
+curl -X POST http://localhost:5001/transcode/enqueue-file \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/media/movies/Interstellar (2014)/Interstellar.mkv"}'
+```
+
+Body fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `path` | string | **Required.** Absolute path to the file |
+| `orig_lang` | string | Override audio language detection (e.g. `eng`, `jpn`) |
+
+Query params:
+
+| Parameter | Description |
+|---|---|
+| `dry_run=true` | Analyse without encoding |
+| `media_test=true` | Write output to the media_test dir instead of overwriting the source |
+| `full=true` | Transcode the entire file and write to the media_test dir (no slicing). Output is named `{parent_dir}__{filename}`. |
+
+`full=true` and `media_test=true` are mutually exclusive — `full` takes priority.
+
+```json
+{"job_id": 42, "path": "/media/movies/Interstellar (2014)/Interstellar.mkv"}
 ```
 
 #### Enqueue a folder
@@ -389,15 +425,23 @@ curl -X POST http://localhost:5001/import-scan \
   -d '{"path": "/media/Movies/The Dark Knight (2008)", "arr": "radarr"}'
 ```
 
-**Already in Radarr/Sonarr** — enqueue directly by pointing at the folder:
+**Already in Radarr/Sonarr** — enqueue a single file directly:
 
 ```bash
-# Enqueue in dry-run mode first (analyses without encoding)
-curl -X POST "http://localhost:5001/transcode/enqueue-folder?dry_run=true" \
+# Dry-run first (analyses without encoding)
+curl -X POST "http://localhost:5001/transcode/enqueue-file?dry_run=true" \
   -H "Content-Type: application/json" \
-  -d '{"path": "/media/Movies/The Dark Knight (2008)"}'
+  -d '{"path": "/media/Movies/The Dark Knight (2008)/The.Dark.Knight.mkv"}'
 
 # Then enqueue for real
+curl -X POST http://localhost:5001/transcode/enqueue-file \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/media/Movies/The Dark Knight (2008)/The.Dark.Knight.mkv"}'
+```
+
+Or use `enqueue-folder` to process all files in a directory:
+
+```bash
 curl -X POST http://localhost:5001/transcode/enqueue-folder \
   -H "Content-Type: application/json" \
   -d '{"path": "/media/Movies/The Dark Knight (2008)"}'
@@ -442,7 +486,9 @@ curl -X POST "http://localhost:5001/media-test/generate?dry_run=true"
       "source": "/data/media_cache/Movies/Interstellar/Interstellar.mkv",
       "output": "/data/media_test/Interstellar__Interstellar_3724s.mkv",
       "start_sec": 3724,
-      "signature": ["hevc", "eac3", 8]
+      "signature": ["hevc", "eac3", 8],
+      "arr_type": "radarr",
+      "orig_lang": "eng"
     }
   ],
   "skipped": []
@@ -464,18 +510,24 @@ curl -X DELETE "http://localhost:5001/media-test/jobs?status=done"
 
 ## Managarr Cleanup
 
-Automatically categorises Plex media against a set of rules and enqueues cleanup actions (add to watchlist collection, promote from cache to main storage, or delete via Radarr/Sonarr). A background worker processes jobs continuously; the enabled/disabled flag lets you pause it without stopping the service.
+Automatically categorises Plex media (movies and TV shows) against a set of rules and enqueues cleanup actions (add to watchlist collection, promote from cache to main storage, or delete via Radarr/Sonarr). A background worker processes jobs continuously; the enabled/disabled flag lets you pause it without stopping the service.
 
-**Rules applied per item:**
+**Rules applied per item (movies and shows):**
 
 | Condition | Action |
 |---|---|
 | Rating ≥ 8 and in `/media_cache` | Promote to `/media` |
 | Rating ≥ 8 | Do nothing |
 | Rating ≤ 3 | Delete |
-| Unrated or rated 4–7, unwatched, added > 60 days ago | Add to collection |
-| Unrated or rated 4–7, watched, last viewed > 14 days ago and added > 30 days ago | Add to collection |
+| Unrated or rated 4–7, unwatched, added > `unwatched_days` ago | Add to collection |
+| Unrated or rated 4–7, watched, last viewed > `watched_last_viewed_days` ago and added > `watched_added_days` ago | Add to collection |
 | In collection for ≥ `collection_days` | Delete |
+
+**Delete behavior for TV shows:**
+- Continuing series (currently airing in Sonarr): episode files are deleted but the series remains monitored in Sonarr so new episodes are still downloaded
+- Ended/cancelled series: the entire series is deleted from Sonarr including files
+
+**State machine:** actions follow valid transition rules. Once a delete is issued it is permanent. A promote or add-to-collection can transition back to do-nothing (e.g. if the item is re-rated), but do-nothing can never skip directly to delete — the add-to-collection timer must elapse first.
 
 ### API
 

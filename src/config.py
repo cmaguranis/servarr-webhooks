@@ -65,7 +65,19 @@ def TRANSCODE_TEMP_FALLBACK() -> str:
 
 # [plex]
 def PLEX_COLLECTION_DAYS() -> int:
-    return _get_int("plex", "collection_days", 30)
+    return _get_int("plex", "collection_days", 14)
+
+
+def PLEX_UNWATCHED_DAYS() -> int:
+    return _get_int("plex", "unwatched_days", 30)
+
+
+def PLEX_WATCHED_LAST_VIEWED_DAYS() -> int:
+    return _get_int("plex", "watched_last_viewed_days", 14)
+
+
+def PLEX_WATCHED_ADDED_DAYS() -> int:
+    return _get_int("plex", "watched_added_days", 14)
 
 
 def PLEX_MOVIE_BATCH() -> int:
