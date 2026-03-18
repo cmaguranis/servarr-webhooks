@@ -142,7 +142,7 @@ Automatically transcodes newly imported or upgraded files to HEVC with normalize
 - Skips files already tagged `transcoded` in Radarr/Sonarr (bypass with `?media_test=true`)
 - Skips files already encoded as HEVC at ≤ 8 Mbps
 - Skips files whose loudness is already within target (LUFS and LRA checks)
-- Normalizes loud/quiet audio with `loudnorm` and compresses high dynamic range with `dynaudnorm`
+- Normalizes loud/quiet audio with `loudnorm`
 - For 5.1 sources: creates a normalized stereo AAC track + normalized 5.1 AC3 track
 - Tags processed files as `transcoded` in Radarr/Sonarr after encode completes
 - Issues a disk rescan in Radarr/Sonarr after the transcode completes
