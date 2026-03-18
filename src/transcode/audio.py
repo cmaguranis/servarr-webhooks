@@ -45,17 +45,14 @@ def get_loudness_stats(
     return _run_loudnorm(path, f"0:{audio_index}", duration)
 
 
-def _audio_needs(stats: dict | None) -> tuple[bool, bool]:
+def _audio_needs(stats: dict | None) -> bool:
     if not stats:
-        return True, True
+        return True
     lufs = float(stats.get("input_i", 0))
-    lra = float(stats.get("input_lra", 0))
-    needs_loudnorm = lufs > -14.0 or lufs < -18.0
-    needs_dynaudnorm = lra > 12.0
-    return needs_loudnorm, needs_dynaudnorm
+    return lufs > -14.0 or lufs < -18.0
 
 
-def _build_audio_filter(stats: dict | None, needs_loudnorm: bool, needs_dynaudnorm: bool, stereo: bool = False) -> str:
+def _build_audio_filter(stats: dict | None, needs_loudnorm: bool, stereo: bool = False) -> str:
     parts = [_AUDIO_FILTER_PREFIX_STEREO if stereo else _AUDIO_FILTER_PREFIX]
     if needs_loudnorm and stats:
         parts.append(
@@ -67,8 +64,6 @@ def _build_audio_filter(stats: dict | None, needs_loudnorm: bool, needs_dynaudno
         )
     elif needs_loudnorm:
         parts.append("loudnorm=I=-16:LRA=7:TP=-1.5")
-    if needs_dynaudnorm:
-        parts.append("dynaudnorm=f=150:g=15")
     # loudnorm can output at 192kHz internally; re-clamp before the encoder.
     if needs_loudnorm:
         parts.append("aresample=48000")

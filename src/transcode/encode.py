@@ -144,10 +144,10 @@ def transcode_file(
         duration = float(fmt.get("duration") or 0)
         logger.info(f"{prefix}Running loudness analysis (5 min window, skip first 10%)...")
         stats = get_loudness_stats(path, audio_index=audio_abs_idx, duration=duration)
-        needs_loudnorm, needs_dynaudnorm = _audio_needs(stats)
-        needs_audio = needs_loudnorm or needs_dynaudnorm
+        needs_loudnorm = _audio_needs(stats)
+        needs_audio = needs_loudnorm
         if stats:
-            logger.info(f"{prefix}Loudness: {stats.get('input_i')} LUFS, LRA={stats.get('input_lra')} LU → loudnorm={needs_loudnorm}, dynaudnorm={needs_dynaudnorm}")
+            logger.info(f"{prefix}Loudness: {stats.get('input_i')} LUFS, LRA={stats.get('input_lra')} LU → loudnorm={needs_loudnorm}")
         else:
             logger.warning(f"{prefix}Loudness analysis returned no stats — will apply full audio normalization")
 
@@ -184,8 +184,8 @@ def transcode_file(
             cmd += ["-c:v", "copy"]
 
         is_mono = target_audio.get("channels", 2) == 1
-        stereo_filter = _build_audio_filter(stats, needs_loudnorm, needs_dynaudnorm, stereo=True)
-        surround_filter = _build_audio_filter(stats, needs_loudnorm, needs_dynaudnorm, stereo=False)
+        stereo_filter = _build_audio_filter(stats, needs_loudnorm, stereo=True)
+        surround_filter = _build_audio_filter(stats, needs_loudnorm, stereo=False)
         if has_51:
             # Always dual tracks: AAC stereo (downmix from 5.1) + AC3 5.1.
             # stereo_filter uses aformat channel_layouts=stereo to force proper Atmos downmix.
@@ -232,7 +232,7 @@ def transcode_file(
                 f"color_space={v_stream.get('color_space')} color_transfer={v_stream.get('color_transfer')} "
                 f"audio={target_audio.get('codec_name')} channels={target_audio.get('channels')} "
                 f"sample_rate={target_audio.get('sample_rate')} "
-                f"needs_video={needs_video} needs_audio={needs_audio} needs_sub_strip={needs_sub_strip} needs_stereo={needs_stereo_encode}"
+                f"needs_video={needs_video} needs_loudnorm={needs_loudnorm} needs_sub_strip={needs_sub_strip} needs_stereo={needs_stereo_encode}"
             )
             logger.info(f"{prefix}[DRY RUN] ffmpeg command: {shlex.join(cmd + ['<output.mkv>'])}")
             return shlex.join(cmd + ["<output.mkv>"])
